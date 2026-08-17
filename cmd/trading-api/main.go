@@ -14,10 +14,18 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-const DATABASE_URL = "postgres://user:password@localhost:5432/invest"
+var ordersCreatedTotal = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "trading_orders_created_total",
+	Help: "The total number of successfully created orders",
+})
+
+const DATABASE_URL = "postgres://user:password@postgres:5432/invest"
 const KAFKA_URL = "kafka:29092"
 
 type OrderInfo struct {
@@ -62,13 +70,14 @@ func main() {
 	log.Printf("Connected to PostgreSQL")
 
 	kafkaClient, err := kgo.NewClient(
-		kgo.SeedBrokers(KAFKA_URL), // <-- Имя контейнера внутри Docker
+		kgo.SeedBrokers(KAFKA_URL),
 		kgo.DefaultProduceTopic("orders.pending"),
 	)
 	if err != nil {
 		log.Fatalf("Unable to connect to kafka: %v", err)
 	}
 	defer kafkaClient.Close()
+	log.Printf("Connected to Kafka")
 
 	orderS := OrderService{
 		db: pool,
@@ -76,6 +85,8 @@ func main() {
 	}
 
 	r := chi.NewRouter()
+
+	r.Handle("/metrics", promhttp.Handler())
 
 	r.Post("/orders", func(w http.ResponseWriter, r *http.Request) {
 		orderS.HandleNewOrder(w, r)
@@ -115,17 +126,21 @@ func (s OrderService) HandleNewOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("Creating new order idemKey: %v", idemKeyStr)
+
 	orderID, status, err := s.CreateOrder(r.Context(), req, idemKey)
 	if err != nil {
-		log.Printf("[WARN]: Create order error: %v", err.Error())
+		log.Printf("[ERR]: Create order error: %v", err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	log.Printf("Order placed successfully owner_id: %s | ticker: %v | quantity: %v | side: %v | price: %v | idemKey: %v | order_id: %v | status: %v", req.OwnerID, req.Ticker, req.Quantity, req.Side, req.Price, idemKeyStr, orderID, status)
 	if status == "ALREADY_EXISTED" {
 		w.WriteHeader(http.StatusOK)
 	} else {
 		w.WriteHeader(http.StatusAccepted)
+		ordersCreatedTotal.Inc()
 	}
 
 	w.Write([]byte(fmt.Sprintf(`{"order_id": %d, "status": "%s"}`, orderID, status)))
@@ -167,6 +182,7 @@ func (s OrderService) CreateOrder(ctx context.Context, req OrderInfo, idemKey uu
 		// Обрабатываем ошибку уникальности ключа идемпотентности
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			log.Printf("[WARN] create order, idempotency key hit: %v", idemKey)
 			existingID, err := s.getOrderByIdempotencyKey(ctx, idemKey)
 			if err != nil {
 				return -1, "", fmt.Errorf("order exists but failed to select it's id: %w", err)

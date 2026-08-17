@@ -1,3 +1,5 @@
+
+
 CREATE TABLE accounts (
     id SERIAL PRIMARY KEY,
     owner_id VARCHAR(50) NOT NULL,
@@ -34,5 +36,5 @@ CREATE TABLE orders (
 -- --- НАПОЛНЯЕМ ТЕСТОВЫМИ ДАННЫМИ ---
 INSERT INTO accounts (id, owner_id, asset, balance) VALUES (1, 'service', 'USD', -1000000);
 INSERT INTO accounts (id, owner_id, asset, balance) VALUES (2, 'service', 'AAPL', 0);
-INSERT INTO accounts (id, owner_id, asset, balance) VALUES (4, 'user_1', 'USD', 1000000);
+INSERT INTO accounts (id, owner_id, asset, balance) VALUES (3, 'user_1', 'USD', 1000000);
 INSERT INTO accounts (id, owner_id, asset, balance) VALUES (4, 'user_1', 'AAPL', 0);

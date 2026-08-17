@@ -16,6 +16,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    tmpfs:
+      # start clean evert time
+      - /var/lib/postgresql/data
   kafka:
     image: apache/kafka:3.7.0
     ports:
