@@ -1,0 +1,146 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"invest-lab/internal/domain"
+	"log"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/twmb/franz-go/pkg/kgo"
+)
+
+type OrderService struct {
+	DB *pgxpool.Pool
+	KC *kgo.Client
+}
+
+func (s *OrderService) CreateOrder(ctx context.Context, req domain.OrderInfo, idemKey uuid.UUID) (int, string, error) {
+	var holdAmount int64
+	var holdAsset string
+	if req.Side == "BUY" {
+		holdAmount = int64(req.Quantity) * req.Price
+		holdAsset = "USD"
+	} else {
+		holdAmount = int64(req.Quantity)
+		holdAsset = req.Ticker
+	}
+
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return -1, "", fmt.Errorf("failed to begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	accountID, err := s.checkBalance(ctx, tx, req.OwnerID, holdAsset, holdAmount)
+	if err != nil {
+		return -1, "", err
+	}
+
+	serviceAccoundID, err := s.getSystemAccountId(holdAsset)
+	if err != nil {
+		return -1, "", err
+	}
+
+	var orderID int
+	err = tx.QueryRow(ctx,
+		"INSERT INTO orders (owner_id, ticker, side, quantity, price, status, idempotency_key) VALUES ($1, $2, $3, $4, $5, 'PENDING', $6) RETURNING id",
+		req.OwnerID, req.Ticker, req.Side, req.Quantity, req.Price, idemKey,
+	).Scan(&orderID)
+	if err != nil {
+		// Обрабатываем ошибку уникальности ключа идемпотентности
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			log.Printf("[WARN] create order, idempotency key hit: %v", idemKey)
+			existingID, err := s.getOrderByIdempotencyKey(ctx, idemKey)
+			if err != nil {
+				return -1, "", fmt.Errorf("order exists but failed to select it's id: %w", err)
+			}
+			return existingID, "ALREADY_EXISTED", nil
+		}
+		return 0, "", err
+	}
+
+	err = s.holdFunds(ctx, tx, orderID, accountID, serviceAccoundID, holdAmount)
+	if err != nil {
+		return -1, "", fmt.Errorf("failed to hold funds: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, "", fmt.Errorf("tx commit failed: %w", err)
+	}
+	// TODO: send message to Kafka
+
+	return orderID, "ACCEPTED", nil
+}
+
+func (s *OrderService) checkBalance(ctx context.Context, tx pgx.Tx, ownerID string, asset string, minAmount int64) (int, error) {
+	var balance int64
+	var accountID int
+	err := tx.QueryRow(
+		ctx,
+		"SELECT balance, id FROM accounts WHERE owner_id=$1 AND asset=$2 FOR UPDATE",
+		ownerID,
+		asset,
+	).Scan(&balance, &accountID)
+	if err != nil {
+		return -1, fmt.Errorf("checkBalance, account not found %w", err)
+	}
+
+	if balance < minAmount {
+		return -1, fmt.Errorf("not enough funds")
+	}
+
+	return accountID, nil
+}
+func (s *OrderService) holdFunds(ctx context.Context, tx pgx.Tx, orderID int, accountID int, serviceAccoundID int, amount int64) error {
+	// create transaction
+	var transactionId int
+	err := tx.QueryRow(ctx, "INSERT INTO transactions (reference_type, reference_id) VALUES ('ORDER_EXECUTION', $1) RETURNING id", orderID).Scan(&transactionId)
+	if err != nil {
+		return fmt.Errorf("INSERT INTO transactions failed: %w", err)
+	}
+
+	// first entry (remove from user)
+	_, err = tx.Exec(ctx, "INSERT INTO postings (transaction_id, account_id, amount) VALUES ($1, $2, $3)", transactionId, accountID, -amount)
+	if err != nil {
+		return fmt.Errorf("INSERT INTO postings (1) failed: %w", err)
+	}
+	// second entry (add to service)
+	_, err = tx.Exec(ctx, "INSERT INTO postings (transaction_id, account_id, amount) VALUES ($1, $2, $3)", transactionId, serviceAccoundID, amount)
+	if err != nil {
+		return fmt.Errorf("INSERT INTO postings(2) failed: %w", err)
+	}
+
+	// update user's cached balance
+	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance - $1 WHERE id = $2", amount, accountID)
+	if err != nil {
+		return fmt.Errorf("UPDATE accounts (1) failed: %w", err)
+	}
+
+	// update service's cached balance
+	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", amount, serviceAccoundID)
+	if err != nil {
+		return fmt.Errorf("UPDATE accounts (2) failed: %w", err)
+	}
+
+	return nil
+}
+func (s *OrderService) getOrderByIdempotencyKey(ctx context.Context, idemKey uuid.UUID) (int, error) {
+	var orderID int
+	err := s.DB.QueryRow(ctx, "SELECT id FROM orders WHERE idempotency_key=$1", idemKey).Scan(&orderID)
+	return orderID, err
+}
+func (s *OrderService) getSystemAccountId(asset string) (int, error) {
+	if asset == "USD" {
+		return 1, nil
+	}
+	if asset == "AAPL" {
+		return 2, nil
+	}
+	return -1, fmt.Errorf("no service account for %v asset", asset)
+}
