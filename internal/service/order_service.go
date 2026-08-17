@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"invest-lab/internal/domain"
@@ -70,10 +71,13 @@ func (s *OrderService) CreateOrder(ctx context.Context, req domain.OrderInfo, id
 		return -1, "", fmt.Errorf("failed to hold funds: %w", err)
 	}
 
+	if err = s.sendMessage(ctx, tx, orderID, req); err != nil {
+		return 0, "", fmt.Errorf("writing to outbox failed: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return 0, "", fmt.Errorf("tx commit failed: %w", err)
 	}
-	// TODO: send message to Kafka
 
 	return orderID, "ACCEPTED", nil
 }
@@ -143,4 +147,28 @@ func (s *OrderService) getSystemAccountId(asset string) (int, error) {
 		return 2, nil
 	}
 	return -1, fmt.Errorf("no service account for %v asset", asset)
+}
+func (s *OrderService) sendMessage(ctx context.Context, tx pgx.Tx, orderID int, req domain.OrderInfo) error {
+	payload, err := json.Marshal(map[string]any{
+		"order_id": orderID,
+		"owner_id": req.OwnerID,
+		"ticker":   req.Ticker,
+		"side":     req.Side,
+		"quantity": req.Quantity,
+		"price":    req.Price,
+	})
+	if err != nil {
+		return fmt.Errorf("failed json.marshal %v", err)
+	}
+
+	_, err = tx.Exec(
+		ctx,
+		"INSERT INTO outbox (aggregate_type, aggregate_id, payload) VALUES ('ORDER', $1, $2)",
+		fmt.Sprintf("%d", orderID),
+		payload,
+	)
+	if err != nil {
+		return fmt.Errorf("failed inserting into outbox %v", err)
+	}
+	return nil
 }

@@ -33,8 +33,17 @@ CREATE TABLE orders (
     idempotency_key UUID UNIQUE NOT NULL
 );
 
+CREATE TABLE outbox (
+    id SERIAL PRIMARY KEY,
+    aggregate_type VARCHAR(50) NOT NULL,
+    aggregate_id VARCHAR(50) NOT NULL,
+    payload JSONB NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- --- НАПОЛНЯЕМ ТЕСТОВЫМИ ДАННЫМИ ---
 INSERT INTO accounts (id, owner_id, asset, balance) VALUES (1, 'service', 'USD', -1000000);
-INSERT INTO accounts (id, owner_id, asset, balance) VALUES (2, 'service', 'AAPL', 0);
+INSERT INTO accounts (id, owner_id, asset, balance) VALUES (2, 'service', 'AAPL', -50);
 INSERT INTO accounts (id, owner_id, asset, balance) VALUES (3, 'user_1', 'USD', 1000000);
-INSERT INTO accounts (id, owner_id, asset, balance) VALUES (4, 'user_1', 'AAPL', 0);
+INSERT INTO accounts (id, owner_id, asset, balance) VALUES (4, 'user_1', 'AAPL', 50);

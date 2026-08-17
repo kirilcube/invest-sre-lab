@@ -44,6 +44,7 @@ func main() {
 	orderHandler := &api.OrderHandler{
 		Service: orderS,
 	}
+	go orderS.RunOutboxRelay(context.Background())
 
 	r := chi.NewRouter()
 
