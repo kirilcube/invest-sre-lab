@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -47,6 +48,9 @@ func main() {
 	go orderS.RunOutboxRelay(context.Background())
 
 	r := chi.NewRouter()
+
+	r.Use(middleware.Logger)
+	r.Use(api.MetricsMiddleware)
 
 	r.Handle("/metrics", promhttp.Handler())
 
