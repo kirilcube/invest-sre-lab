@@ -3,8 +3,8 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"invest-lab/internal/domain"
-	"invest-lab/internal/service"
+	"invest-lab/internal/trading-api/domain"
+	"invest-lab/internal/trading-api/service"
 	"log"
 	"net/http"
 

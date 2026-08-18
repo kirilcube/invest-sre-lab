@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"invest-lab/internal/domain"
+	"invest-lab/internal/trading-api/domain"
 	"log"
 
 	"github.com/google/uuid"
@@ -134,6 +134,17 @@ func (s *OrderService) holdFunds(ctx context.Context, tx pgx.Tx, orderID int, ac
 
 	return nil
 }
+
+func (s *OrderService) RefundOrder(ctx context.Context, orderID int) error {
+	// TODO: implement
+	// start transaction
+	// refund order
+	// set order's status to 'REFUNDED'
+	// commit transaction
+	log.Fatalf("OrderService.RefundOrder was called but it's not implemented, orderID: %v", orderID)
+	return fmt.Errorf("OrderService.RefundOrder was called but it's not implemented, orderID: %v", orderID)
+}
+
 func (s *OrderService) getOrderByIdempotencyKey(ctx context.Context, idemKey uuid.UUID) (int, error) {
 	var orderID int
 	err := s.DB.QueryRow(ctx, "SELECT id FROM orders WHERE idempotency_key=$1", idemKey).Scan(&orderID)
@@ -151,7 +162,6 @@ func (s *OrderService) getSystemAccountId(asset string) (int, error) {
 func (s *OrderService) sendMessage(ctx context.Context, tx pgx.Tx, orderID int, req domain.OrderInfo) error {
 	payload, err := json.Marshal(map[string]any{
 		"order_id": orderID,
-		"owner_id": req.OwnerID,
 		"ticker":   req.Ticker,
 		"side":     req.Side,
 		"quantity": req.Quantity,

@@ -51,6 +51,18 @@ services:
       # also start clean every time
       - /tmp/kafka-logs
       - /tmp/kraft-combined-logs
+  kafka-setup:
+    image: apache/kafka:3.7.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for Kafka to be ready...' &&
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic orders.pending --bootstrap-server kafka:29092 --partitions 3 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic orders.completed --bootstrap-server kafka:29092 --partitions 3 --replication-factor 1 &&
+        echo 'Kafka topics created successfully!'
+      "
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -96,6 +108,7 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+    command: ["./trading-api"]
     ports:
       - "8080:8080"
     depends_on:
@@ -103,6 +116,19 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-setup:
+        condition: service_completed_successfully
+
+  execution-engine:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["./execution-engine"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-setup:
+        condition: service_completed_successfully
 volumes:
   grafana_data:
   prometheus_data:

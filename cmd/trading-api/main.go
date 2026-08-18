@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"invest-lab/internal/api"
-	"invest-lab/internal/service"
+	"invest-lab/internal/trading-api/api"
+	"invest-lab/internal/trading-api/service"
 	"log"
 	"net/http"
 	"os"
@@ -22,6 +22,10 @@ import (
 
 const DATABASE_URL = "postgres://user:password@postgres:5432/invest"
 const KAFKA_URL = "kafka:29092"
+const TOPIC_PENDING = "orders.pending"
+
+const TOPIC_COMPLETED = "orders.completed"
+const CONSUMER_GROUP = "trading-api-group"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -39,7 +43,12 @@ func main() {
 
 	kafkaClient, err := kgo.NewClient(
 		kgo.SeedBrokers(KAFKA_URL),
-		kgo.DefaultProduceTopic("orders.pending"),
+		kgo.DefaultProduceTopic(TOPIC_PENDING),
+
+		kgo.ConsumerGroup(CONSUMER_GROUP),
+		kgo.ConsumeTopics(TOPIC_COMPLETED),
+		//kgo.DisableAutoCommit(),
+		kgo.AutoCommitMarks(),
 	)
 	if err != nil {
 		log.Fatalf("Unable to connect to kafka: %v", err)
@@ -55,6 +64,7 @@ func main() {
 		Service: orderS,
 	}
 	go orderS.RunOutboxRelay(ctx)
+	go orderS.RunCompletedOrdersConsumer(ctx)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
