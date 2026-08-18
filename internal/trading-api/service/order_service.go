@@ -135,6 +135,106 @@ func (s *OrderService) holdFunds(ctx context.Context, tx pgx.Tx, orderID int, ac
 	return nil
 }
 
+func (s *OrderService) finalizeOrder(ctx context.Context, orderID int) error {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var ticker string
+	var quantity int
+	var ownerID string
+	var side string
+	var price int64
+	err = tx.QueryRow(ctx, `
+		UPDATE orders 
+		SET status = 'EXECUTED' 
+		WHERE id = $1 AND status = 'PENDING' 
+		RETURNING ticker, quantity, owner_id, side, price
+	`, orderID).Scan(&ticker, &quantity, &ownerID, &side, &price)
+	if err != nil {
+		return fmt.Errorf("processCompletedOrder: error writing status to sql: order_id: %d, err: %v", orderID, err)
+	}
+	var asset string
+	var amount int64
+	if side == "BUY" {
+		asset = ticker
+		amount = int64(quantity)
+	} else if side == "SELL" {
+		asset = "USD"
+		amount = int64(quantity) * price
+	} else {
+		return fmt.Errorf("side (%v) must be either SELL or BUY for order %d", side, orderID)
+	}
+
+	// new transaction record
+	var transactionID int
+	err = tx.QueryRow(ctx, `
+		INSERT INTO transactions (reference_type, reference_id) 
+		VALUES ('ORDER_FINALIZATION', $1) 
+		RETURNING id
+	`, orderID).Scan(&transactionID)
+	if err != nil {
+		return fmt.Errorf("transaction insert failed: %w", err)
+	}
+
+	// create account for user if there isn't one
+	var accountID int
+	err = tx.QueryRow(ctx, `
+		INSERT INTO accounts (owner_id, asset, balance)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (owner_id, asset) DO UPDATE SET asset = EXCLUDED.asset
+		RETURNING id
+	`, ownerID, asset, 0).Scan(&accountID)
+	if err != nil {
+		return fmt.Errorf("failed to create account owner_id: %v | asset: %v | err: %w", ownerID, asset, err)
+	}
+
+	// add assets to user's account
+	_, err = tx.Exec(ctx, `
+		INSERT INTO postings (transaction_id, account_id, amount) 
+		VALUES ($1, $2, $3)
+	`, transactionID, accountID, amount)
+	if err != nil {
+		return fmt.Errorf("failed to insert posting (1): %w", err)
+	}
+
+	serviceAccID, err := s.getSystemAccountId(asset)
+	if err != nil {
+		return fmt.Errorf("failed to get system's account id for %v asset | err: %w", asset, err)
+	}
+
+	// remove assets from service's account
+	_, err = tx.Exec(ctx, `
+		INSERT INTO postings (transaction_id, account_id, amount) 
+		VALUES ($1, $2, $3)
+	`, transactionID, serviceAccID, -amount)
+	if err != nil {
+		return fmt.Errorf("failed to insert posting (2): %w", err)
+	}
+
+	// update user's cached balance
+	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", amount, accountID)
+	if err != nil {
+		return fmt.Errorf("UPDATE accounts (1) failed: %w", err)
+	}
+
+	// update service's cached balance
+	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", -amount, serviceAccID)
+	if err != nil {
+		return fmt.Errorf("UPDATE accounts (2) failed: %w", err)
+	}
+
+	// commit
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("tx commit failed: %w", err)
+	}
+
+	ordersCompletedSuccessfully.Inc()
+	return nil
+}
+
 func (s *OrderService) refundOrder(ctx context.Context, orderID int) error {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {

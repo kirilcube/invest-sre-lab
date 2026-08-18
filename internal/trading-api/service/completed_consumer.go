@@ -53,8 +53,8 @@ func (s *OrderService) RunCompletedOrdersConsumer(ctx context.Context) {
 				// these are db writing/refund errors
 				if err != nil {
 					log.Printf("[ERROR] Error processing completed err: %v", err)
-					// it's fine to just return, since it's a lab project.
-					return
+					// in production we'd wanna handle some of the errors
+					// and write to dead messages topic otherwise
 				}
 
 				s.KC.MarkCommitRecords(record)
@@ -73,17 +73,11 @@ func (s *OrderService) processCompletedOrder(ctx context.Context, record *kgo.Re
 
 	log.Printf("[INFO] processCompletedOrder order's id: %d | status: %v | error_message: %v", order.OrderID, order.Status, order.Error)
 	if order.Status != "ERROR" && order.Error == "" {
-		res, err := s.DB.Exec(ctx, "UPDATE orders SET status = 'EXECUTED' WHERE id = $1 AND status = 'PENDING'", order.OrderID)
+		err = s.finalizeOrder(ctx, order.OrderID)
 		if err != nil {
-			return fmt.Errorf("processCompletedOrder: error writing status to sql: order_id: %d, err: %v", order.OrderID, err)
+			return fmt.Errorf("failed to finalize order %d | err: %v", order.OrderID, err)
 		}
 
-		if res.RowsAffected() == 0 {
-			log.Printf("[INFO] Order %d already processed or not found", order.OrderID)
-			return nil
-		}
-
-		ordersCompletedSuccessfully.Inc()
 		log.Printf("[INFO] Order %d finalized!", order.OrderID)
 	} else {
 		log.Printf("[ERROR] Order %d failed to execute, err: %v", order.OrderID, order.Error)

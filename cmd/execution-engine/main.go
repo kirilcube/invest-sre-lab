@@ -75,9 +75,8 @@ func main() {
 				err := processOrder(ctx, kc, record)
 				if err != nil {
 					log.Printf("[ERROR] Error processing record value: %v", record.Value)
-					// in production we'd probably want to send this messages to Dead Letter Queue
-					// or if it's a system error, retry it couple of times
-					// return
+					// in production we'd wanna handle some of the errors
+					// and write to dead messages topic otherwise
 				}
 
 				kc.MarkCommitRecords(record)
