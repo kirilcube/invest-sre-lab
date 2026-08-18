@@ -5,8 +5,8 @@
     "name": "admb287",
     "namespace": "default",
     "uid": "ec4239ff-de46-4ec1-a1d4-bea6ef2982c7",
-    "resourceVersion": "1787052769243003",
-    "generation": 13,
+    "resourceVersion": "1787068767460996",
+    "generation": 14,
     "creationTimestamp": "2026-08-17T17:15:43Z",
     "labels": {
       "grafana.app/deprecatedInternalID": "4234088955940864"
@@ -15,11 +15,11 @@
       "grafana.app/createdBy": "user:dfvh2h2pno9a8e",
       "grafana.app/managedBy": "classic-file-provisioning",
       "grafana.app/managerId": "Default Dashboards",
-      "grafana.app/sourceChecksum": "2e015e7c028b19f52a86d27e71a98b4a",
+      "grafana.app/sourceChecksum": "8563407919ffd1fbeb8f4e737fc20fc1",
       "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/trading_api_dashboard.json",
-      "grafana.app/sourceTimestamp": "1787052499000",
+      "grafana.app/sourceTimestamp": "1787053181000",
       "grafana.app/updatedBy": "access-policy:service",
-      "grafana.app/updatedTimestamp": "2026-08-18T11:32:49Z",
+      "grafana.app/updatedTimestamp": "2026-08-18T15:59:27Z",
       "grafana.app/folder": ""
     }
   },
@@ -445,7 +445,7 @@
           "description": "",
           "id": 12,
           "links": [],
-          "title": "Failed Orders Per Second",
+          "title": "Failed Orders Per Minute",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
@@ -502,7 +502,8 @@
                         "value": 80
                       }
                     ]
-                  }
+                  },
+                  "unit": "cpm"
                 },
                 "overrides": []
               },
@@ -622,7 +623,8 @@
                         "value": 80
                       }
                     ]
-                  }
+                  },
+                  "unit": "cpm"
                 },
                 "overrides": []
               },
@@ -747,7 +749,7 @@
                       }
                     ]
                   },
-                  "unit": "cps"
+                  "unit": "cpm"
                 },
                 "overrides": []
               },
@@ -793,7 +795,7 @@
                       "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "editorMode": "builder",
+                        "editorMode": "code",
                         "expr": "sum by(method, path) (rate(http_requests_total[1m]))",
                         "legendFormat": "__auto",
                         "range": true
@@ -811,7 +813,7 @@
           "description": "",
           "id": 3,
           "links": [],
-          "title": "RPS",
+          "title": "RPM",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
@@ -871,7 +873,8 @@
                         "value": 80
                       }
                     ]
-                  }
+                  },
+                  "unit": "reqpm"
                 },
                 "overrides": []
               },
@@ -935,7 +938,7 @@
           "description": "",
           "id": 4,
           "links": [],
-          "title": "Errors Per Second",
+          "title": "Errors Per Minute",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",

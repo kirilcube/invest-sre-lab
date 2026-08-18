@@ -50,10 +50,10 @@ func (s *OrderService) RunCompletedOrdersConsumer(ctx context.Context) {
 
 				err := s.processCompletedOrder(ctx, record)
 
-				// these are db writing/refund/json unmarshaling errors
-				// TODO: decide how to handle these
+				// these are db writing/refund errors
 				if err != nil {
-					log.Printf("[ERROR] Error processing completed order: %v", record.Value)
+					log.Printf("[ERROR] Error processing completed err: %v", err)
+					// it's fine to just return, since it's a lab project.
 					return
 				}
 
@@ -67,9 +67,11 @@ func (s *OrderService) processCompletedOrder(ctx context.Context, record *kgo.Re
 	var order CompletedOrderRecord
 	err := json.Unmarshal(record.Value, &order)
 	if err != nil {
-		return fmt.Errorf("processCompletedOrder: can't unmarshal json: %v", err)
+		log.Printf("[CRITICAL] Poison pill detected, skipping: %v. Raw: %s", err, string(record.Value))
+		return nil
 	}
 
+	log.Printf("[INFO] processCompletedOrder order's id: %d | status: %v | error_message: %v", order.OrderID, order.Status, order.Error)
 	if order.Status != "ERROR" && order.Error == "" {
 		res, err := s.DB.Exec(ctx, "UPDATE orders SET status = 'EXECUTED' WHERE id = $1 AND status = 'PENDING'", order.OrderID)
 		if err != nil {
@@ -82,16 +84,18 @@ func (s *OrderService) processCompletedOrder(ctx context.Context, record *kgo.Re
 		}
 
 		ordersCompletedSuccessfully.Inc()
+		log.Printf("[INFO] Order %d finalized!", order.OrderID)
 	} else {
 		log.Printf("[ERROR] Order %d failed to execute, err: %v", order.OrderID, order.Error)
-		ordersCompletedWithError.Inc()
 
-		err := s.RefundOrder(ctx, order.OrderID)
+		err := s.refundOrder(ctx, order.OrderID)
 		if err != nil {
 			return fmt.Errorf("processCompletedOrder: error refunding order: order_id: %d, err: %v", order.OrderID, err)
 		}
+
+		ordersCompletedWithError.Inc()
+		log.Printf("[INFO] Order %d refunded!", order.OrderID)
 	}
 
-	log.Printf("[SUCCESS] Order %d finalized!", order.OrderID)
 	return nil
 }

@@ -103,25 +103,25 @@ func (s *OrderService) checkBalance(ctx context.Context, tx pgx.Tx, ownerID stri
 }
 func (s *OrderService) holdFunds(ctx context.Context, tx pgx.Tx, orderID int, accountID int, serviceAccoundID int, amount int64) error {
 	// create transaction
-	var transactionId int
-	err := tx.QueryRow(ctx, "INSERT INTO transactions (reference_type, reference_id) VALUES ('ORDER_EXECUTION', $1) RETURNING id", orderID).Scan(&transactionId)
+	var transactionID int
+	err := tx.QueryRow(ctx, "INSERT INTO transactions (reference_type, reference_id) VALUES ('ORDER_EXECUTION', $1) RETURNING id", orderID).Scan(&transactionID)
 	if err != nil {
-		return fmt.Errorf("INSERT INTO transactions failed: %w", err)
+		return fmt.Errorf("transaction insert failed: %w", err)
 	}
 
 	// first entry (remove from user)
-	_, err = tx.Exec(ctx, "INSERT INTO postings (transaction_id, account_id, amount) VALUES ($1, $2, $3)", transactionId, accountID, -amount)
+	_, err = tx.Exec(ctx, "INSERT INTO postings (transaction_id, account_id, amount) VALUES ($1, $2, $3)", transactionID, accountID, -amount)
 	if err != nil {
-		return fmt.Errorf("INSERT INTO postings (1) failed: %w", err)
+		return fmt.Errorf("postings insert (1) failed: %w", err)
 	}
 	// second entry (add to service)
-	_, err = tx.Exec(ctx, "INSERT INTO postings (transaction_id, account_id, amount) VALUES ($1, $2, $3)", transactionId, serviceAccoundID, amount)
+	_, err = tx.Exec(ctx, "INSERT INTO postings (transaction_id, account_id, amount) VALUES ($1, $2, $3)", transactionID, serviceAccoundID, amount)
 	if err != nil {
-		return fmt.Errorf("INSERT INTO postings(2) failed: %w", err)
+		return fmt.Errorf("postings insert (2) failed: %w", err)
 	}
 
 	// update user's cached balance
-	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance - $1 WHERE id = $2", amount, accountID)
+	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", -amount, accountID)
 	if err != nil {
 		return fmt.Errorf("UPDATE accounts (1) failed: %w", err)
 	}
@@ -135,14 +135,55 @@ func (s *OrderService) holdFunds(ctx context.Context, tx pgx.Tx, orderID int, ac
 	return nil
 }
 
-func (s *OrderService) RefundOrder(ctx context.Context, orderID int) error {
-	// TODO: implement
-	// start transaction
-	// refund order
-	// set order's status to 'REFUNDED'
-	// commit transaction
-	log.Fatalf("OrderService.RefundOrder was called but it's not implemented, orderID: %v", orderID)
-	return fmt.Errorf("OrderService.RefundOrder was called but it's not implemented, orderID: %v", orderID)
+func (s *OrderService) refundOrder(ctx context.Context, orderID int) error {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	res, err := tx.Exec(ctx, "UPDATE orders SET status = 'REJECTED' WHERE id = $1 AND status = 'PENDING'", orderID)
+	if err != nil {
+		return fmt.Errorf("error updating order's status order: %d | err: %v", orderID, err)
+	}
+	if res.RowsAffected() != 1 {
+		log.Printf("[WARN] RefundOrder, tried to refund order that's either not found or not PENDING. order: %d", orderID)
+		return nil
+	}
+
+	var transactionID int
+	err = tx.QueryRow(ctx, "INSERT INTO transactions (reference_type, reference_id) VALUES ('ORDER_REFUND', $1) RETURNING id", orderID).Scan(&transactionID)
+	if err != nil {
+		return fmt.Errorf("transaction insert failed: %w", err)
+	}
+
+	res, err = tx.Exec(ctx, `
+		INSERT INTO postings (transaction_id, account_id, amount)
+		SELECT $1, account_id, -amount
+		FROM postings
+		WHERE transaction_id = (SELECT id FROM transactions WHERE reference_id = $2 AND reference_type = 'ORDER_EXECUTION')
+	`, transactionID, orderID)
+	if err != nil {
+		return fmt.Errorf("failed to insert new postings: %w", err)
+	}
+	if res.RowsAffected() != 2 {
+		return fmt.Errorf("we expect to insert exactly two new postings per refund (double-entry). rows-affected: %d", res.RowsAffected())
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE accounts 
+		SET balance = accounts.balance + p.amount
+		FROM postings p 
+		WHERE p.transaction_id = $1 AND accounts.id = p.account_id
+	`, transactionID)
+	if err != nil {
+		return fmt.Errorf("failed to update balances: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("tx commit failed: %w", err)
+	}
+	return nil
 }
 
 func (s *OrderService) getOrderByIdempotencyKey(ctx context.Context, idemKey uuid.UUID) (int, error) {
