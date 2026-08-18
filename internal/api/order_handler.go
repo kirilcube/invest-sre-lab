@@ -46,16 +46,16 @@ func (s *OrderHandler) HandleNewOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Creating new order idemKey: %v", idemKeyStr)
+	log.Printf("[INFO] Creating new order idemKey: %v", idemKeyStr)
 
 	orderID, status, err := s.Service.CreateOrder(r.Context(), req, idemKey)
 	if err != nil {
-		log.Printf("[ERR]: Create order error: %v", err.Error())
+		log.Printf("[ERR] Create order error: %v", err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("Order placed successfully owner_id: %s | ticker: %v | quantity: %v | side: %v | price: %v | idemKey: %v | order_id: %v | status: %v", req.OwnerID, req.Ticker, req.Quantity, req.Side, req.Price, idemKeyStr, orderID, status)
+	log.Printf("[INFO] Order placed successfully owner_id: %s | ticker: %v | quantity: %v | side: %v | price: %v | idemKey: %v | order_id: %v | status: %v", req.OwnerID, req.Ticker, req.Quantity, req.Side, req.Price, idemKeyStr, orderID, status)
 	if status == "ALREADY_EXISTED" {
 		w.WriteHeader(http.StatusOK)
 	} else {

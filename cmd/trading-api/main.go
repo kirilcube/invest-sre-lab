@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"invest-lab/internal/api"
 	"invest-lab/internal/service"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -20,13 +24,16 @@ const DATABASE_URL = "postgres://user:password@postgres:5432/invest"
 const KAFKA_URL = "kafka:29092"
 
 func main() {
-	pool, err := pgxpool.New(context.Background(), DATABASE_URL)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	pool, err := pgxpool.New(ctx, DATABASE_URL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
 		os.Exit(1)
 	}
 	defer pool.Close()
-	log.Printf("Connected to PostgreSQL")
+	log.Printf("[INFO] Connected to PostgreSQL")
 
 	kafkaClient, err := kgo.NewClient(
 		kgo.SeedBrokers(KAFKA_URL),
@@ -36,7 +43,7 @@ func main() {
 		log.Fatalf("Unable to connect to kafka: %v", err)
 	}
 	defer kafkaClient.Close()
-	log.Printf("Connected to Kafka")
+	log.Printf("[INFO] Connected to Kafka")
 
 	orderS := &service.OrderService{
 		DB: pool,
@@ -45,23 +52,39 @@ func main() {
 	orderHandler := &api.OrderHandler{
 		Service: orderS,
 	}
-	go orderS.RunOutboxRelay(context.Background())
+	go orderS.RunOutboxRelay(ctx)
 
 	r := chi.NewRouter()
-
 	r.Use(middleware.Logger)
 	r.Use(api.MetricsMiddleware)
-
 	r.Handle("/metrics", promhttp.Handler())
-
 	r.Post("/orders", orderHandler.HandleNewOrder)
 
 	//r.Get("/accounts/{owner}/{asset}", func(w http.ResponseWriter, r *http.Request) {
 	// TODO: handle
 	//})
 
-	log.Printf("Trading Api is running on port 8080")
-	if err := http.ListenAndServe(":8080", r); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	srv := &http.Server{
+		Addr:    ":8080",
+		Handler: r,
 	}
+
+	go func() {
+		log.Printf("[INFO] Trading API is running on port 8080")
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("[INFO] Graceful shutdown initiated. Waiting for active requests to finish...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
+	}
+
+	log.Println("[INFO] Server exited properly")
 }
