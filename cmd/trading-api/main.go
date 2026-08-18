@@ -35,6 +35,8 @@ func main() {
 	defer pool.Close()
 	log.Printf("[INFO] Connected to PostgreSQL")
 
+	api.RegisterDBMetrics(pool)
+
 	kafkaClient, err := kgo.NewClient(
 		kgo.SeedBrokers(KAFKA_URL),
 		kgo.DefaultProduceTopic("orders.pending"),

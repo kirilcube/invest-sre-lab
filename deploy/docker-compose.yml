@@ -17,6 +17,15 @@ services:
     tmpfs:
       # start clean every time
       - /var/lib/postgresql/data
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    environment:
+      DATA_SOURCE_NAME: "postgresql://user:password@postgres:5432/invest?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
   kafka:
     image: apache/kafka:3.7.0
     ports:
