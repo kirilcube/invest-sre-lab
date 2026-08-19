@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/plugin/kprom"
 )
 
 const KAFKA_URL = "kafka:29092"
@@ -39,6 +42,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	kafkaMetrics := kprom.NewMetrics("execution_engine")
+
 	kc, err := kgo.NewClient(
 		kgo.SeedBrokers(KAFKA_URL),
 
@@ -46,12 +51,21 @@ func main() {
 		kgo.ConsumeTopics(TOPIC_PENDING),
 		//kgo.DisableAutoCommit(),
 		kgo.AutoCommitMarks(),
+		kgo.WithHooks(kafkaMetrics),
 	)
 	if err != nil {
 		log.Fatalf("Unable to connect to kafka: %v", err)
 	}
 	defer kc.Close()
 	log.Printf("[INFO] Connected to Kafka")
+
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		log.Println("[INFO] Metrics server running on :8081")
+		if err := http.ListenAndServe(":8081", nil); err != nil {
+			log.Fatalf("Metrics server failed: %v", err)
+		}
+	}()
 
 	sem := make(chan struct{}, 50)
 

@@ -63,6 +63,14 @@ services:
         /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic orders.completed --bootstrap-server kafka:29092 --partitions 3 --replication-factor 1 &&
         echo 'Kafka topics created successfully!'
       "
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    command: ["--kafka.server=kafka:29092"]
+    ports:
+      - "9308:9308"
+    depends_on:
+      kafka:
+        condition: service_healthy
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -124,6 +132,8 @@ services:
       context: ..
       dockerfile: Dockerfile
     command: ["./execution-engine"]
+    ports:
+      - "8081:8081"
     depends_on:
       kafka:
         condition: service_healthy

@@ -21,6 +21,7 @@ require (
 	github.com/segmentio/kafka-go v0.4.51 // indirect
 	github.com/twmb/franz-go v1.21.6 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect
+	github.com/twmb/franz-go/plugin/kprom v1.5.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect

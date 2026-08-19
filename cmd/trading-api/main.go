@@ -16,8 +16,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/plugin/kprom"
 )
 
 const DATABASE_URL = "postgres://user:password@postgres:5432/invest"
@@ -41,6 +43,11 @@ func main() {
 
 	api.RegisterDBMetrics(pool)
 
+	kafkaMetrics := kprom.NewMetrics(
+		"trading_api",
+		kprom.Registerer(prometheus.DefaultRegisterer),
+	)
+
 	kafkaClient, err := kgo.NewClient(
 		kgo.SeedBrokers(KAFKA_URL),
 		kgo.DefaultProduceTopic(TOPIC_PENDING),
@@ -49,6 +56,7 @@ func main() {
 		kgo.ConsumeTopics(TOPIC_COMPLETED),
 		//kgo.DisableAutoCommit(),
 		kgo.AutoCommitMarks(),
+		kgo.WithHooks(kafkaMetrics),
 	)
 	if err != nil {
 		log.Fatalf("Unable to connect to kafka: %v", err)
