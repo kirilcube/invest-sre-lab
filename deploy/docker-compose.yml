@@ -9,14 +9,13 @@ services:
       - "5432:5432"
     volumes:
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user -d invest"]
       interval: 5s
       timeout: 5s
       retries: 5
-    tmpfs:
-      # start clean every time
-      - /var/lib/postgresql/data
+
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:latest
     environment:
@@ -28,9 +27,11 @@ services:
         condition: service_healthy
   kafka:
     image: apache/kafka:3.7.0
+    user: root
     ports:
       - "9092:9092"
     environment:
+      CLUSTER_ID: "invest-lab-cluster-123"
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
@@ -47,10 +48,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    tmpfs:
-      # also start clean every time
-      - /tmp/kafka-logs
-      - /tmp/kraft-combined-logs
+    volumes:
+      - kafka_data:/tmp/kafka-logs
+      - kraft_data:/tmp/kraft-combined-logs
   kafka-setup:
     image: apache/kafka:3.7.0
     depends_on:
@@ -140,6 +140,9 @@ services:
       kafka-setup:
         condition: service_completed_successfully
 volumes:
+  postgres_data:
+  kafka_data:
+  kraft_data:
   grafana_data:
   prometheus_data:
   loki_data:
