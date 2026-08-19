@@ -24,6 +24,21 @@ The infrastructure includes:
 *   **Database:** PostgreSQL.
 *   **Observability Stack:** Prometheus, Grafana, Loki.
 
+### Microservices Architecture
+
+The system is split into two independent services to ensure high availability and clearly separate the internal ledger from external market execution:
+
+1. **`trading-api` (The Ledger & API Gateway)**
+    * Receives incoming HTTP REST requests from users.
+    * Validates user balances, holds funds/assets, and writes the initial order to the database.
+    * Utilizes the **Transactional Outbox Pattern** to guarantee that pending orders are reliably published to the Kafka `orders.pending` topic.
+    * Subscribes to the `orders.completed` topic to finalize the trade. It performs the strict **Double-Entry Accounting** to officially move the assets and updates the final order status to `EXECUTED` or `FAILED`.
+
+2. **`execution-engine` (The Market Worker)**
+    * Subscribes to the Kafka `orders.pending` topic.
+    * Takes the pending order and "talks" to the external market broker (simulated execution).
+    * Publishes the result back to the Kafka `orders.completed` topic.
+
 ## How to Use This Lab
 
 Open the `Incidents` resource containing a list of prepared incidents. Each incident includes a specific **commit hash** and a brief **context**.
