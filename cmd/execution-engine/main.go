@@ -21,8 +21,6 @@ const TOPIC_PENDING = "orders.pending"
 const TOPIC_COMPLETED = "orders.completed"
 const CONSUMER_GROUP = "execution-engine-group"
 
-var test_counter = 0
-
 type PendingOrder struct {
 	OrderID  int    `json:"order_id"`
 	Ticker   string `json:"ticker"`
@@ -109,15 +107,6 @@ func processOrder(ctx context.Context, kc *kgo.Client, record *kgo.Record) error
 
 	// simulate request to broker
 	time.Sleep(500 * time.Millisecond)
-	test_counter++
-	if test_counter%2 == 0 {
-		// test order refunding
-		err = produceCompletedMessage(ctx, kc, order.OrderID, "ERROR", "test refunding")
-		if err != nil {
-			return fmt.Errorf("failed to produce message to kafka: %v", err)
-		}
-		return nil
-	}
 	// use order.OrderID as client_order_id for idempotency
 
 	// - send message to kafka

@@ -79,10 +79,8 @@ func main() {
 	r.Use(api.MetricsMiddleware)
 	r.Handle("/metrics", promhttp.Handler())
 	r.Post("/orders", orderHandler.HandleNewOrder)
-
-	//r.Get("/accounts/{owner}/{asset}", func(w http.ResponseWriter, r *http.Request) {
-	// TODO: handle
-	//})
+	r.Get("/accounts/balance/{owner}/{asset}", orderHandler.HandleGetBalance)
+	r.Get("/accounts/postings/{owner}/{asset}", orderHandler.HandleGetPostings)
 
 	srv := &http.Server{
 		Addr:    ":8080",

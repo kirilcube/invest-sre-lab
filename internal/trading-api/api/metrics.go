@@ -22,10 +22,18 @@ var (
 		Help:    "Duration of HTTP requests in seconds",
 		Buckets: prometheus.DefBuckets, // Стандартные бакеты от 5мс до 10с
 	}, []string{"method", "path"})
+
+	inFlightRequests = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "http_requests_in_flight",
+		Help: "Current number of HTTP requests being processed",
+	}, []string{"method"})
 )
 
 func MetricsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		inFlightRequests.WithLabelValues(r.Method).Inc()
+		defer inFlightRequests.WithLabelValues(r.Method).Dec()
+
 		start := time.Now()
 
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)

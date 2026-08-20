@@ -101,6 +101,72 @@ func (s *OrderService) CheckBalance(ctx context.Context, tx pgx.Tx, ownerID stri
 
 	return accountID, nil
 }
+
+func (s *OrderService) GetBalance(ctx context.Context, ownerID string, asset string) (int64, error) {
+	var balance int64
+	var accountID int
+	err := s.DB.QueryRow(
+		ctx,
+		"SELECT balance, id FROM accounts WHERE owner_id=$1 AND asset=$2 FOR UPDATE",
+		ownerID,
+		asset,
+	).Scan(&balance, &accountID)
+	if err != nil {
+		return -1, fmt.Errorf("CheckBalance, account not found %w", err)
+	}
+
+	return balance, nil
+}
+
+type PostingInfo struct {
+	Id        int    `json:"id"`
+	AccountID int    `json:"account_id"`
+	Amount    int64  `json:"amount"`
+	Asset     string `json:"asset"`
+	Reason    string `json:"reson"`
+}
+
+func (s *OrderService) GetPostings(ctx context.Context, ownerID string, asset string) ([]PostingInfo, error) {
+	var accountID int
+	err := s.DB.QueryRow(ctx, "SELECT id FROM accounts WHERE owner_id = $1 AND asset = $2", ownerID, asset).Scan(&accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find accountID for owner: %v, asset: %v, err: %v", ownerID, asset, err)
+	}
+
+	rows, err := s.DB.Query(ctx, "SELECT id, amount, transaction_id FROM postings WHERE account_id = $1", accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find postings for accountID: %d, err: %v", accountID, err)
+	}
+
+	res := make([]PostingInfo, 0)
+
+	var postingID int
+	var amount int64
+	var transactionID int
+	for rows.Next() {
+		err = rows.Scan(&postingID, &amount, &transactionID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan posting: %v", err)
+		}
+		// N+1 problem =)
+		var referenceType string
+		err := s.DB.QueryRow(ctx, "SELECT reference_type FROM transactions WHERE id = $1", transactionID).Scan(&referenceType)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query referenceType for transactionID: %d, err: %v", transactionID, err)
+		}
+
+		res = append(res, PostingInfo{
+			Id:        postingID,
+			AccountID: accountID,
+			Amount:    amount,
+			Asset:     asset,
+			Reason:    referenceType,
+		})
+	}
+
+	return res, nil
+}
+
 func (s *OrderService) FinalizeOrder(ctx context.Context, orderID int) error {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
