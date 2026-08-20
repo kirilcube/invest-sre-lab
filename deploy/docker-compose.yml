@@ -1,6 +1,14 @@
 services:
   postgres:
     image: postgres:15-alpine
+    command:
+      - "postgres"
+      - "-c"
+      - "max_wal_size=8GB"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -8,13 +16,19 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ../scripts/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user -d invest"]
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '512M'
 
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:latest
@@ -43,6 +57,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_HEAP_OPTS: "-Xmx256m -Xms256m"
     healthcheck:
       test: [ "CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list" ]
       interval: 10s
@@ -51,6 +66,11 @@ services:
     volumes:
       - kafka_data:/tmp/kafka-logs
       - kraft_data:/tmp/kraft-combined-logs
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '512M'
   kafka-setup:
     image: apache/kafka:3.7.0
     depends_on:
@@ -126,6 +146,11 @@ services:
         condition: service_healthy
       kafka-setup:
         condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '256M'
 
   execution-engine:
     build:

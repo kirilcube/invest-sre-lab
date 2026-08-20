@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
 CREATE TABLE accounts (
     id SERIAL PRIMARY KEY,
     owner_id VARCHAR(50) NOT NULL,
@@ -9,7 +11,7 @@ CREATE TABLE accounts (
 CREATE TABLE transactions (
     id SERIAL PRIMARY KEY,
     reference_type VARCHAR(50),
-    reference_id INT, -- most of the times it's id of order
+    reference_id INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -39,8 +41,3 @@ CREATE TABLE outbox (
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
--- --- НАПОЛНЯЕМ ТЕСТОВЫМИ ДАННЫМИ ---
-INSERT INTO accounts (owner_id, asset, balance) VALUES ('service', 'USD', -1000000);
-INSERT INTO accounts (owner_id, asset, balance) VALUES ('service', 'AAPL', 0);
-INSERT INTO accounts (owner_id, asset, balance) VALUES ('user_1', 'USD', 1000000);
