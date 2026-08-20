@@ -73,7 +73,7 @@ func (s *OrderService) processCompletedOrder(ctx context.Context, record *kgo.Re
 
 	log.Printf("[INFO] processCompletedOrder order's id: %d | status: %v | error_message: %v", order.OrderID, order.Status, order.Error)
 	if order.Status != "ERROR" && order.Error == "" {
-		err = s.finalizeOrder(ctx, order.OrderID)
+		err = s.FinalizeOrder(ctx, order.OrderID)
 		if err != nil {
 			return fmt.Errorf("failed to finalize order %d | err: %v", order.OrderID, err)
 		}
@@ -82,7 +82,7 @@ func (s *OrderService) processCompletedOrder(ctx context.Context, record *kgo.Re
 	} else {
 		log.Printf("[ERROR] Order %d failed to execute, err: %v", order.OrderID, order.Error)
 
-		err := s.refundOrder(ctx, order.OrderID)
+		err := s.RefundOrder(ctx, order.OrderID)
 		if err != nil {
 			return fmt.Errorf("processCompletedOrder: error refunding order: order_id: %d, err: %v", order.OrderID, err)
 		}

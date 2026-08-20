@@ -37,12 +37,12 @@ func (s *OrderService) CreateOrder(ctx context.Context, req domain.OrderInfo, id
 	}
 	defer tx.Rollback(ctx)
 
-	accountID, err := s.checkBalance(ctx, tx, req.OwnerID, holdAsset, holdAmount)
+	accountID, err := s.CheckBalance(ctx, tx, req.OwnerID, holdAsset, holdAmount)
 	if err != nil {
 		return -1, "", err
 	}
 
-	serviceAccoundID, err := s.getSystemAccountId(holdAsset)
+	serviceAccoundID, err := s.GetSystemAccountId(ctx, tx, holdAsset)
 	if err != nil {
 		return -1, "", err
 	}
@@ -66,7 +66,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req domain.OrderInfo, id
 		return 0, "", err
 	}
 
-	err = s.holdFunds(ctx, tx, orderID, accountID, serviceAccoundID, holdAmount)
+	err = s.HoldFunds(ctx, tx, orderID, accountID, serviceAccoundID, holdAmount)
 	if err != nil {
 		return -1, "", fmt.Errorf("failed to hold funds: %w", err)
 	}
@@ -82,7 +82,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req domain.OrderInfo, id
 	return orderID, "ACCEPTED", nil
 }
 
-func (s *OrderService) checkBalance(ctx context.Context, tx pgx.Tx, ownerID string, asset string, minAmount int64) (int, error) {
+func (s *OrderService) CheckBalance(ctx context.Context, tx pgx.Tx, ownerID string, asset string, minAmount int64) (int, error) {
 	var balance int64
 	var accountID int
 	err := tx.QueryRow(
@@ -92,7 +92,7 @@ func (s *OrderService) checkBalance(ctx context.Context, tx pgx.Tx, ownerID stri
 		asset,
 	).Scan(&balance, &accountID)
 	if err != nil {
-		return -1, fmt.Errorf("checkBalance, account not found %w", err)
+		return -1, fmt.Errorf("CheckBalance, account not found %w", err)
 	}
 
 	if balance < minAmount {
@@ -101,41 +101,7 @@ func (s *OrderService) checkBalance(ctx context.Context, tx pgx.Tx, ownerID stri
 
 	return accountID, nil
 }
-func (s *OrderService) holdFunds(ctx context.Context, tx pgx.Tx, orderID int, accountID int, serviceAccoundID int, amount int64) error {
-	// create transaction
-	var transactionID int
-	err := tx.QueryRow(ctx, "INSERT INTO transactions (reference_type, reference_id) VALUES ('ORDER_EXECUTION', $1) RETURNING id", orderID).Scan(&transactionID)
-	if err != nil {
-		return fmt.Errorf("transaction insert failed: %w", err)
-	}
-
-	// first entry (remove from user)
-	_, err = tx.Exec(ctx, "INSERT INTO postings (transaction_id, account_id, amount) VALUES ($1, $2, $3)", transactionID, accountID, -amount)
-	if err != nil {
-		return fmt.Errorf("postings insert (1) failed: %w", err)
-	}
-	// second entry (add to service)
-	_, err = tx.Exec(ctx, "INSERT INTO postings (transaction_id, account_id, amount) VALUES ($1, $2, $3)", transactionID, serviceAccoundID, amount)
-	if err != nil {
-		return fmt.Errorf("postings insert (2) failed: %w", err)
-	}
-
-	// update user's cached balance
-	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", -amount, accountID)
-	if err != nil {
-		return fmt.Errorf("UPDATE accounts (1) failed: %w", err)
-	}
-
-	// update service's cached balance
-	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", amount, serviceAccoundID)
-	if err != nil {
-		return fmt.Errorf("UPDATE accounts (2) failed: %w", err)
-	}
-
-	return nil
-}
-
-func (s *OrderService) finalizeOrder(ctx context.Context, orderID int) error {
+func (s *OrderService) FinalizeOrder(ctx context.Context, orderID int) error {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin tx: %w", err)
@@ -179,14 +145,7 @@ func (s *OrderService) finalizeOrder(ctx context.Context, orderID int) error {
 		return fmt.Errorf("transaction insert failed: %w", err)
 	}
 
-	// create account for user if there isn't one
-	var accountID int
-	err = tx.QueryRow(ctx, `
-		INSERT INTO accounts (owner_id, asset, balance)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (owner_id, asset) DO UPDATE SET asset = EXCLUDED.asset
-		RETURNING id
-	`, ownerID, asset, 0).Scan(&accountID)
+	accountID, err := s.getOrCreateAccount(ctx, tx, ownerID, asset)
 	if err != nil {
 		return fmt.Errorf("failed to create account owner_id: %v | asset: %v | err: %w", ownerID, asset, err)
 	}
@@ -200,7 +159,7 @@ func (s *OrderService) finalizeOrder(ctx context.Context, orderID int) error {
 		return fmt.Errorf("failed to insert posting (1): %w", err)
 	}
 
-	serviceAccID, err := s.getSystemAccountId(asset)
+	serviceAccID, err := s.GetSystemAccountId(ctx, tx, asset)
 	if err != nil {
 		return fmt.Errorf("failed to get system's account id for %v asset | err: %w", asset, err)
 	}
@@ -235,7 +194,40 @@ func (s *OrderService) finalizeOrder(ctx context.Context, orderID int) error {
 	return nil
 }
 
-func (s *OrderService) refundOrder(ctx context.Context, orderID int) error {
+func (s *OrderService) HoldFunds(ctx context.Context, tx pgx.Tx, orderID int, accountID int, serviceAccoundID int, amount int64) error {
+	// create transaction
+	var transactionID int
+	err := tx.QueryRow(ctx, "INSERT INTO transactions (reference_type, reference_id) VALUES ('ORDER_EXECUTION', $1) RETURNING id", orderID).Scan(&transactionID)
+	if err != nil {
+		return fmt.Errorf("transaction insert failed: %w", err)
+	}
+
+	// first entry (remove from user)
+	_, err = tx.Exec(ctx, "INSERT INTO postings (transaction_id, account_id, amount) VALUES ($1, $2, $3)", transactionID, accountID, -amount)
+	if err != nil {
+		return fmt.Errorf("postings insert (1) failed: %w", err)
+	}
+	// second entry (add to service)
+	_, err = tx.Exec(ctx, "INSERT INTO postings (transaction_id, account_id, amount) VALUES ($1, $2, $3)", transactionID, serviceAccoundID, amount)
+	if err != nil {
+		return fmt.Errorf("postings insert (2) failed: %w", err)
+	}
+
+	// update user's cached balance
+	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", -amount, accountID)
+	if err != nil {
+		return fmt.Errorf("UPDATE accounts (1) failed: %w", err)
+	}
+
+	// update service's cached balance
+	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", amount, serviceAccoundID)
+	if err != nil {
+		return fmt.Errorf("UPDATE accounts (2) failed: %w", err)
+	}
+
+	return nil
+}
+func (s *OrderService) RefundOrder(ctx context.Context, orderID int) error {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin tx: %w", err)
@@ -291,15 +283,27 @@ func (s *OrderService) getOrderByIdempotencyKey(ctx context.Context, idemKey uui
 	err := s.DB.QueryRow(ctx, "SELECT id FROM orders WHERE idempotency_key=$1", idemKey).Scan(&orderID)
 	return orderID, err
 }
-func (s *OrderService) getSystemAccountId(asset string) (int, error) {
-	if asset == "USD" {
-		return 1, nil
-	}
-	if asset == "AAPL" {
-		return 2, nil
-	}
-	return -1, fmt.Errorf("no service account for %v asset", asset)
+func (s *OrderService) GetSystemAccountId(ctx context.Context, tx pgx.Tx, asset string) (int, error) {
+	return s.getOrCreateAccount(ctx, tx, "service", asset)
 }
+
+func (s *OrderService) getOrCreateAccount(ctx context.Context, tx pgx.Tx, ownerID string, asset string) (int, error) {
+	var accountID int
+
+	err := tx.QueryRow(ctx, `
+		INSERT INTO accounts (owner_id, asset, balance)
+		VALUES ($1, $2, 0)
+		ON CONFLICT (owner_id, asset) DO UPDATE SET asset = EXCLUDED.asset
+		RETURNING id
+	`, ownerID, asset).Scan(&accountID)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to get/create account owner_id: %v | asset: %v | err: %w", ownerID, asset, err)
+	}
+
+	return accountID, nil
+}
+
 func (s *OrderService) sendMessage(ctx context.Context, tx pgx.Tx, orderID int, req domain.OrderInfo) error {
 	payload, err := json.Marshal(map[string]any{
 		"order_id": orderID,

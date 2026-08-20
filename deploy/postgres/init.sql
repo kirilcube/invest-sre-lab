@@ -1,5 +1,3 @@
-
-
 CREATE TABLE accounts (
     id SERIAL PRIMARY KEY,
     owner_id VARCHAR(50) NOT NULL,
@@ -43,7 +41,6 @@ CREATE TABLE outbox (
 );
 
 -- --- НАПОЛНЯЕМ ТЕСТОВЫМИ ДАННЫМИ ---
-INSERT INTO accounts (id, owner_id, asset, balance) VALUES (1, 'service', 'USD', -1000000);
-INSERT INTO accounts (id, owner_id, asset, balance) VALUES (2, 'service', 'AAPL', -50);
-INSERT INTO accounts (id, owner_id, asset, balance) VALUES (3, 'user_1', 'USD', 1000000);
-INSERT INTO accounts (id, owner_id, asset, balance) VALUES (4, 'user_1', 'AAPL', 50);
+INSERT INTO accounts (owner_id, asset, balance) VALUES ('service', 'USD', -1000000);
+INSERT INTO accounts (owner_id, asset, balance) VALUES ('service', 'AAPL', 0);
+INSERT INTO accounts (owner_id, asset, balance) VALUES ('user_1', 'USD', 1000000);

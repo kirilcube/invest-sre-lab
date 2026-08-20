@@ -54,6 +54,19 @@ Here is your workflow as the On-Call Engineer:
     *   Separately, design and implement an **Architectural Solution** (e.g., Outbox pattern, Saga, Idempotency keys) to prevent this from happening again.
 5.  **Compare Notes:** Once resolved, check my personal investigation log for that incident. You can compare your approach with mine: what anomalies I noticed in the metrics, the tools I used to isolate the bottleneck, my hotfix, and my final architectural solution.
 
+## Testing
+
+The project includes robust **Integration Tests** using [Testcontainers](https://golang.testcontainers.org/). These tests spin up a real, ephemeral PostgreSQL database in Docker to validate the business logic.
+
+**What is covered:**
+*   **Double-Entry Accounting:** Mathematical validation that user balances and system accounts mirror each other perfectly (zero sum).
+*   **Financial Flows:** E2E testing of critical paths, including holding funds (`PENDING`), successful trade execution (`EXECUTED`), and rolling back transactions / refunding (`REJECTED`).
+*   **Database Constraints:** Validating schema correctness, unique keys, and complex SQL queries natively.
+
+To run the tests use the `go test -v ./...` command.
+
+*PS: On Windows, you might need to expose the Docker daemon on TCP and set `$env:DOCKER_HOST="tcp://localhost:2375"` for the tests to work.*
+
 ## The Evolving Codebase
 
 **Important:** From commit to commit, the codebase will change. This is not a bug, but rather a feature. It simulates a real-world production environment where multiple people are working on services, and no single engineer knows every line of code. Your best friends here are your observability tools.

@@ -12,16 +12,16 @@ if "%1"=="down" (
 )
 
 if "%1"=="reset" (
-    echo 🛑 Stopping services and destroying incident data...
+    echo Stopping services and destroying incident data...
     docker compose down -v
-    echo 🧹 Cleanup complete. Database, Kafka, and metrics are wiped clean!
-    echo 🚀 Booting up the lab again...
+    echo Cleanup complete. Database, Kafka, and metrics are wiped clean!
+    echo Booting up the lab again...
     docker compose up -d --build
     exit /b
 )
 
 if "%1"=="clean" (
-    echo 🛑 Destroying all data volumes...
+    echo Destroying all data volumes...
     docker compose down -v
     exit /b
 )
