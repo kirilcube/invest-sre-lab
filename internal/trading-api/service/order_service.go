@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"invest-lab/internal/trading-api/domain"
 	"log"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -127,32 +128,33 @@ type PostingInfo struct {
 }
 
 func (s *OrderService) GetPostings(ctx context.Context, ownerID string, asset string) ([]PostingInfo, error) {
-	var accountID int
-	err := s.DB.QueryRow(ctx, "SELECT id FROM accounts WHERE owner_id = $1 AND asset = $2", ownerID, asset).Scan(&accountID)
+	rows, err := s.DB.Query(ctx, `
+		SELECT a.id, p.id, p.amount, t.reference_type
+		FROM accounts a 
+		JOIN postings p ON p.account_id = a.id
+		JOIN transactions t ON t.id = p.transaction_id
+		WHERE a.owner_id = $1 AND a.asset = $2
+	`, ownerID, asset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find accountID for owner: %v, asset: %v, err: %v", ownerID, asset, err)
+		return nil, fmt.Errorf("failed to query postings: %v", err)
 	}
-
-	rows, err := s.DB.Query(ctx, "SELECT id, amount, transaction_id FROM postings WHERE account_id = $1", accountID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find postings for accountID: %d, err: %v", accountID, err)
-	}
+	defer rows.Close()
 
 	res := make([]PostingInfo, 0)
 
-	var postingID int
+	var postingID, accountID int
 	var amount int64
-	var transactionID int
+	var refType string
 	for rows.Next() {
-		err = rows.Scan(&postingID, &amount, &transactionID)
+		err = rows.Scan(&accountID, &postingID, &amount, &refType)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan posting: %v", err)
 		}
-		// N+1 problem =)
-		var referenceType string
-		err := s.DB.QueryRow(ctx, "SELECT reference_type FROM transactions WHERE id = $1", transactionID).Scan(&referenceType)
+
+		// DO NOT TOUCH THIS FUNC
+		err := heaveFunc(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to query referenceType for transactionID: %d, err: %v", transactionID, err)
+			return nil, fmt.Errorf("heavy func failed: %v", err)
 		}
 
 		res = append(res, PostingInfo{
@@ -160,11 +162,20 @@ func (s *OrderService) GetPostings(ctx context.Context, ownerID string, asset st
 			AccountID: accountID,
 			Amount:    amount,
 			Asset:     asset,
-			Reason:    referenceType,
+			Reason:    refType,
 		})
 	}
 
 	return res, nil
+}
+
+func heaveFunc(ctx context.Context) error {
+	select {
+	case <-time.After(100 * time.Millisecond):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *OrderService) FinalizeOrder(ctx context.Context, orderID int) error {

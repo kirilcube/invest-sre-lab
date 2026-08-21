@@ -2,21 +2,45 @@ import http from 'k6/http';
 import { check } from 'k6';
 
 export const options = {
+    timeout: '15s',
     scenarios: {
+        // reads_scenario: {
+        //     executor: 'constant-arrival-rate',
+        //     rate: 40,
+        //     timeUnit: '1s',
+        //     duration: '24h',
+        //     startTime: '10s',
+        //     preAllocatedVUs: 50,
+        //     maxVUs: 1000,
+        //     exec: 'readBalance',
+        // },
         reads_scenario: {
-            executor: 'constant-arrival-rate',
-            rate: 10,
+            executor: 'ramping-arrival-rate',
+            startRate: 5,
             timeUnit: '1s',
-            duration: '24h',
             preAllocatedVUs: 50,
             maxVUs: 1000,
+            startTime: '10s',
+
+            stages: [
+                { duration: '2m', target: 5 },
+                { duration: '1m', target: 20 },
+                { duration: '1m', target: 30 },
+
+                { duration: '1m', target: 40 },
+
+                { duration: '24h', target: 40 },
+
+                { duration: '30s', target: 0 },
+            ],
             exec: 'readBalance',
         },
         orders_scenario: {
             executor: 'constant-arrival-rate',
-            rate: 1,
+            rate: 3,
             timeUnit: '1s',
             duration: '24h',
+            startTime: '10s',
             preAllocatedVUs: 10,
             maxVUs: 100,
             exec: 'placeOrder',

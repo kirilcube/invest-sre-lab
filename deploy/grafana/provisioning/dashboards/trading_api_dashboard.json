@@ -4,20 +4,20 @@
   "metadata": {
     "name": "admb287",
     "namespace": "default",
-    "uid": "4e6c31dc-b8de-44bd-aaf4-0af8a9627e20",
-    "resourceVersion": "1787255500974999",
+    "uid": "72850de9-b778-4985-8366-0f505aab7e8f",
+    "resourceVersion": "1787310813591013",
     "generation": 1,
-    "creationTimestamp": "2026-08-20T19:51:40Z",
+    "creationTimestamp": "2026-08-21T11:13:33Z",
     "labels": {
-      "grafana.app/deprecatedInternalID": "856980113395712"
+      "grafana.app/deprecatedInternalID": "1088978039701504"
     },
     "annotations": {
       "grafana.app/createdBy": "access-policy:service",
       "grafana.app/managedBy": "classic-file-provisioning",
       "grafana.app/managerId": "Default Dashboards",
-      "grafana.app/sourceChecksum": "20eeac66a1f92250dfa89c0b2716e492",
+      "grafana.app/sourceChecksum": "6b139e802dd7330f5dc7b12334bb101f",
       "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/trading_api_dashboard.json",
-      "grafana.app/sourceTimestamp": "1787254819000",
+      "grafana.app/sourceTimestamp": "1787255730000",
       "grafana.app/folder": ""
     }
   },
@@ -1242,7 +1242,7 @@
                     "barAlignment": 0,
                     "barWidthFactor": 0.9,
                     "drawStyle": "line",
-                    "fillOpacity": 50,
+                    "fillOpacity": 20,
                     "gradientMode": "none",
                     "hideFrom": {
                       "legend": false,
@@ -1264,7 +1264,7 @@
                     "spanNulls": false,
                     "stacking": {
                       "group": "A",
-                      "mode": "normal"
+                      "mode": "none"
                     },
                     "thresholdsStyle": {
                       "mode": "off"

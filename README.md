@@ -14,6 +14,21 @@ This repository is designed as an **On-Call Simulator**. It mimics a production 
 - [Incidents](https://docs.google.com/document/d/1r1XCtIaXUxqj8zq4YKoZJPDuCGakAjiKjLkaFVGykHc)
 - [Log](https://docs.google.com/document/d/1oXc02MCUhHpGu1NZA40Fu8e2Vn9FIDNGaFObrGR-eCY/edit?usp=sharing)
 
+## How to Use This Lab
+
+Open the `Incidents` resource containing a list of prepared incidents. Each incident includes a specific **commit hash** and a brief **context**.
+
+Here is your workflow as the On-Call Engineer:
+
+1.  **Checkout the Incident:** Run `git checkout <commit-hash>` to travel to the exact state where the incident is occurring.
+2.  **Clean the state:** Run `make reset` (*Linux/Mac*) or `./lab.bat reset` (*Windows*) from the `/deploy` dir to clear up all the artifacts from previous runs.
+3.  **Read the Context:** Read the incident description. What are the users complaining about? What alerts are firing?
+4.  **Investigate & Fix:** Your goal is to restore the system as quickly as possible.
+    *   *Do not just read the code.* Rely heavily on Grafana dashboards, metrics, and logs to narrow down the root cause.
+    *   Deploy a **Hotfix** to stop the bleeding immediately.
+    *   Separately, design and implement an **Architectural Solution** (e.g., Outbox pattern, Saga, Idempotency keys) to prevent this from happening again.
+5.  **Compare Notes:** Once resolved, check my personal investigation log for that incident. You can compare your approach with mine: what anomalies I noticed in the metrics, the tools I used to isolate the bottleneck, my hotfix, and my final architectural solution.
+
 ## The Environment
 
 To make the simulation realistic, I built a setup that mirrors a real fintech architecture handling high-load trading (users buying/selling stocks).
@@ -23,6 +38,16 @@ The infrastructure includes:
 *   **Message Broker:** Apache Kafka.
 *   **Database:** PostgreSQL.
 *   **Observability Stack:** Prometheus, Grafana, Loki.
+
+**Important:** From commit to commit, the codebase will change. This is not a bug, but rather a feature. It simulates a real-world production environment where multiple people are working on services, and no single engineer knows every line of code. Your best friends here are your observability tools.
+
+### Consistent behavior across different machines
+
+If you look at the `docker-compose.yml` file, you'll notice strict resource limits (e.g., `cpus: '0.5'`, `memory: '512M'`) applied to the PostgreSQL database, Kafka, and the Go service.
+
+This is intentional. In the real world, system performance is relative. A powerful modern CPU can execute a Full Table Scan so fast that it might mask underlying architectural flaws, even at hundreds of RPS. On weaker hardware, the exact same system might collapse at just 30 RPS.
+
+To make this SRE lab predictable and educational, we artificially bottleneck the containers. So whether you run it on an old laptop or a high-end server, the Saturation Cliff will occur predictably at a similar RPS threshold.
 
 ### Microservices Architecture
 
@@ -39,40 +64,11 @@ The system is split into two independent services to ensure high availability an
     * Takes the pending order and "talks" to the external market broker (simulated execution).
     * Publishes the result back to the Kafka `orders.completed` topic.
 
-## How to Use This Lab
+## Useful
+**Grafana:** [http://localhost:3000](http://localhost:3000) *(Credentials: `admin` / `admin`)*
 
-Open the `Incidents` resource containing a list of prepared incidents. Each incident includes a specific **commit hash** and a brief **context**.
-
-Here is your workflow as the On-Call Engineer:
-
-1.  **Checkout the Incident:** Run `git checkout <commit-hash>` to travel to the exact state where the incident is occurring.
-2.  **Clean the state:** Run `make reset` (*Linux/Mac*) or `./lab.bat reset` (*Windows*) from the `/deploy` dir to clear up all of the artifacts from previous runs.
-3.  **Read the Context:** Read the incident description. What are the users complaining about? What alerts are firing?
-4.  **Investigate & Fix:** Your goal is to restore the system as quickly as possible.
-    *   *Do not just read the code.* Rely heavily on Grafana dashboards, metrics, and logs to narrow down the root cause.
-    *   Deploy a **Hotfix** to stop the bleeding immediately.
-    *   Separately, design and implement an **Architectural Solution** (e.g., Outbox pattern, Saga, Idempotency keys) to prevent this from happening again.
-5.  **Compare Notes:** Once resolved, check my personal investigation log for that incident. You can compare your approach with mine: what anomalies I noticed in the metrics, the tools I used to isolate the bottleneck, my hotfix, and my final architectural solution.
-
-## Testing
-
-The project includes robust **Integration Tests** using [Testcontainers](https://golang.testcontainers.org/). These tests spin up a real, ephemeral PostgreSQL database in Docker to validate the business logic.
-
-**What is covered:**
-*   **Double-Entry Accounting:** Mathematical validation that user balances and system accounts mirror each other perfectly (zero sum).
-*   **Financial Flows:** E2E testing of critical paths, including holding funds (`PENDING`), successful trade execution (`EXECUTED`), and rolling back transactions / refunding (`REJECTED`).
-*   **Database Constraints:** Validating schema correctness, unique keys, and complex SQL queries natively.
-
-To run the tests use the `go test -v ./...` command.
-
-*PS: On Windows, you might need to expose the Docker daemon on TCP and set `$env:DOCKER_HOST="tcp://localhost:2375"` for the tests to work.*
-
-## The Evolving Codebase
-
-**Important:** From commit to commit, the codebase will change. This is not a bug, but rather a feature. It simulates a real-world production environment where multiple people are working on services, and no single engineer knows every line of code. Your best friends here are your observability tools.
-
-## Useful commands
-Run from the `/deploy` dir:
+**Environment Management:**
+Run from the `/deploy` directory:
 
 **Linux / Mac:**
 - `make clean` - wipe all data
@@ -87,3 +83,16 @@ Run from the `/deploy` dir:
 - `./lab.bat reset` - shut down, clean the data and start the lab
 
 *You can also do `docker-compose up --build -d [name of the service]` to restart only one particular service.*
+
+## Testing
+
+The project includes robust **Integration Tests** using [Testcontainers](https://golang.testcontainers.org/). These tests spin up a real, ephemeral PostgreSQL database in Docker to validate the business logic.
+
+**What is covered:**
+*   **Double-Entry Accounting:** Mathematical validation that user balances and system accounts mirror each other perfectly (zero sum).
+*   **Financial Flows:** E2E testing of critical paths, including holding funds (`PENDING`), successful trade execution (`EXECUTED`), and rolling back transactions / refunding (`REJECTED`).
+*   **Database Constraints:** Validating schema correctness, unique keys, and complex SQL queries natively.
+
+To run the tests use the `go test -v ./...` command.
+
+*PS: On Windows, you might need to expose the Docker daemon on TCP and set `$env:DOCKER_HOST="tcp://localhost:2375"` for the tests to work.*
