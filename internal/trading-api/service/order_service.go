@@ -138,7 +138,6 @@ func (s *OrderService) GetPostings(ctx context.Context, ownerID string, asset st
 	if err != nil {
 		return nil, fmt.Errorf("failed to query postings: %v", err)
 	}
-	defer rows.Close()
 
 	res := make([]PostingInfo, 0)
 

@@ -2,7 +2,7 @@ import http from 'k6/http';
 import { check } from 'k6';
 
 export const options = {
-    timeout: '15s',
+    timeout: '10s',
     scenarios: {
         // reads_scenario: {
         //     executor: 'constant-arrival-rate',
@@ -20,10 +20,10 @@ export const options = {
             timeUnit: '1s',
             preAllocatedVUs: 50,
             maxVUs: 1000,
-            startTime: '10s',
+            startTime: '20s',
 
             stages: [
-                { duration: '2m', target: 5 },
+                { duration: '1m', target: 5 },
                 { duration: '1m', target: 20 },
                 { duration: '1m', target: 30 },
 
