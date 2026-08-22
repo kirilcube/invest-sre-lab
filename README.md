@@ -47,7 +47,7 @@ If you look at the `docker-compose.yml` file, you'll notice strict resource limi
 
 This is intentional. In the real world, system performance is relative. A powerful modern CPU can execute a Full Table Scan so fast that it might mask underlying architectural flaws, even at hundreds of RPS. On weaker hardware, the exact same system might collapse at just 30 RPS.
 
-To make this SRE lab predictable and educational, we artificially bottleneck the containers. So whether you run it on an old laptop or a high-end server, the Saturation Cliff will occur predictably at a similar RPS threshold.
+To make this SRE lab predictable and educational, I artificially bottleneck the containers. So whether you run it on an old laptop or a high-end server, the Saturation Cliff will occur predictably at a similar RPS threshold.
 
 ### Microservices Architecture
 
@@ -96,3 +96,27 @@ The project includes robust **Integration Tests** using [Testcontainers](https:/
 To run the tests use the `go test -v ./...` command.
 
 *PS: On Windows, you might need to expose the Docker daemon on TCP and set `$env:DOCKER_HOST="tcp://localhost:2375"` for the tests to work.*
+
+## Contributing (Create And Share Your Own Incidents!)
+
+You can contribute by designing new incidents (e.g., memory leaks, race conditions, Kafka consumer group lags, deadlocks) and submitting a Pull Request.
+
+### The "Zero-Config" Rule
+The core philosophy of this lab is seamless reproducibility. A user must be able to reproduce your incident just by switching to the commit and running standard commands.
+**No manual configuration should be required.**
+
+If someone runs:
+1. `git checkout <your-commit-hash>`
+2. `make reset` (or `./lab.bat reset`)
+
+...the system should successfully boot up, apply the load, and start bleeding on the Grafana dashboards.
+
+### How to contribute an incident:
+1. **Fork & Branch:** Fork the repository and create a new branch.
+2. **Break it:** Introduce your bug into the codebase or infrastructure configuration.
+3. **Adjust the Load Test (Optional):** If your bug requires a specific traffic pattern (e.g., spiky traffic, huge payloads), update the `scripts/loadtest.js` accordingly.
+4. **Submit a PR:** Open a Pull Request and include a brief description of the incident:
+    * **Context:** What is the scenario?
+    * **Symptoms:** What metrics will go crazy in Grafana?
+    * **Root Cause:** What is the actual bug?
+5. **Merge & Publish:** Once reviewed, I will merge your PR into the `main` branch. I will then capture the exact merge commit hash and officially add it to the **Incidents Document**, giving you full credit for the scenario!
