@@ -7,11 +7,11 @@ export const options = {
         reads_scenario: {
             executor: 'constant-arrival-rate',
             rate: 40,
+            maxVUs: 100,
             timeUnit: '1s',
             duration: '24h',
             startTime: '10s',
             preAllocatedVUs: 50,
-            maxVUs: 1000,
             exec: 'readBalance',
         },
         // reads_scenario: {
@@ -35,37 +35,37 @@ export const options = {
         //     ],
         //     exec: 'readBalance',
         // },
+        // orders_scenario: {
+        //     executor: 'constant-arrival-rate',
+        //     rate: 1000,
+        //     maxVUs: 1500,
+        //     preAllocatedVUs: 10,
+        //     timeUnit: '1s',
+        //     duration: '24h',
+        //     startTime: '10s',
+        //     exec: 'placeOrder',
+        // },
         orders_scenario: {
-            executor: 'constant-arrival-rate',
-            rate: 1000,
+            executor: 'ramping-arrival-rate',
+            startRate: 10,
             timeUnit: '1s',
-            duration: '24h',
-            startTime: '10s',
-            preAllocatedVUs: 10,
-            maxVUs: 500,
+            preAllocatedVUs: 50,
+            maxVUs: 200,
+            // startTime: '10s',
+
+            stages: [
+                { duration: '30s', target: 10 },
+                { duration: '2m', target: 100 },
+                { duration: '2m', target: 500 },
+
+                { duration: '1m', target: 1000 },
+
+                { duration: '24h', target: 1000 },
+
+                { duration: '30s', target: 0 },
+            ],
             exec: 'placeOrder',
         },
-        // orders_scenario: {
-        //     executor: 'ramping-arrival-rate',
-        //     startRate: 5,
-        //     timeUnit: '1s',
-        //     preAllocatedVUs: 50,
-        //     maxVUs: 200,
-        //     startTime: '20s',
-        //
-        //     stages: [
-        //         { duration: '1m', target: 5 },
-        //         { duration: '1m', target: 20 },
-        //         { duration: '1m', target: 30 },
-        //
-        //         { duration: '1m', target: 40 },
-        //
-        //         { duration: '24h', target: 40 },
-        //
-        //         { duration: '30s', target: 0 },
-        //     ],
-        //     exec: 'readBalance',
-        // },
     },
 };
 

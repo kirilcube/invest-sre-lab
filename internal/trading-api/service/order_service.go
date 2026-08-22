@@ -16,8 +16,9 @@ import (
 )
 
 type OrderService struct {
-	DB *pgxpool.Pool
-	KC *kgo.Client
+	DB       *pgxpool.Pool
+	DBWorker *pgxpool.Pool
+	KC       *kgo.Client
 }
 
 func (s *OrderService) CreateOrder(ctx context.Context, req domain.OrderInfo, idemKey uuid.UUID) (int, string, error) {
@@ -345,7 +346,12 @@ func (s *OrderService) getOrderByIdempotencyKey(ctx context.Context, idemKey uui
 	return orderID, err
 }
 func (s *OrderService) GetSystemAccountId(ctx context.Context, tx pgx.Tx, asset string) (int, error) {
-	return s.getOrCreateAccount(ctx, tx, "service", asset)
+	var accountID int
+	err := tx.QueryRow(ctx, "SELECT id FROM accounts WHERE owner_id = $1 AND asset = $2", "service", asset).Scan(&accountID)
+	if err != nil {
+		return -1, fmt.Errorf("failed to select system account for asset %v, err: %v", asset, err)
+	}
+	return accountID, nil
 }
 
 func (s *OrderService) getOrCreateAccount(ctx context.Context, tx pgx.Tx, ownerID string, asset string) (int, error) {

@@ -9,6 +9,7 @@ import (
 )
 
 func (s *OrderService) RunOutboxRelay(ctx context.Context) {
+	log.Printf("[INFO] Worker pool max conns: %d", s.DBWorker.Stat().MaxConns())
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -24,7 +25,7 @@ func (s *OrderService) RunOutboxRelay(ctx context.Context) {
 }
 
 func (s *OrderService) sendMessages(ctx context.Context) {
-	rows, err := s.DB.Query(ctx,
+	rows, err := s.DBWorker.Query(ctx,
 		"UPDATE outbox SET status = 'PROCESSING' WHERE id IN (SELECT id FROM outbox WHERE status = 'PENDING' LIMIT 100 FOR UPDATE SKIP LOCKED) RETURNING id, payload",
 	)
 	if err != nil {
@@ -39,7 +40,7 @@ func (s *OrderService) sendMessages(ctx context.Context) {
 		err := rows.Scan(&id, &payload)
 		if err != nil {
 			log.Printf("[WARN] Error reading id/payload from outbox row: %v", err)
-			_, err := s.DB.Exec(ctx, "UPDATE outbox SET status = 'PENDING' WHERE id=$1", id)
+			_, err := s.DBWorker.Exec(ctx, "UPDATE outbox SET status = 'PENDING' WHERE id=$1", id)
 			if err != nil {
 				log.Printf("[ERR] Send to kafka error AND setting status back to PENDING error, id: %v | err: %v", id, err)
 			}
@@ -49,12 +50,12 @@ func (s *OrderService) sendMessages(ctx context.Context) {
 		err = s.KC.ProduceSync(ctx, &kgo.Record{Value: payload}).FirstErr()
 		if err != nil {
 			log.Printf("[WARN] Send to kafka error: %v", err)
-			_, err := s.DB.Exec(ctx, "UPDATE outbox SET status = 'PENDING' WHERE id=$1", id)
+			_, err := s.DBWorker.Exec(ctx, "UPDATE outbox SET status = 'PENDING' WHERE id=$1", id)
 			if err != nil {
 				log.Printf("[ERR] Send to kafka error AND setting status back to PENDING error, id: %v | err: %v", id, err)
 			}
 			continue
 		}
-		s.DB.Exec(ctx, "DELETE FROM outbox WHERE id=$1", id)
+		s.DBWorker.Exec(ctx, "DELETE FROM outbox WHERE id=$1", id)
 	}
 }

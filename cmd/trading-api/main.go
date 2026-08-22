@@ -33,15 +33,24 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := pgxpool.New(ctx, DATABASE_URL)
+	apiPool, err := pgxpool.New(ctx, DATABASE_URL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
 		os.Exit(1)
 	}
-	defer pool.Close()
+	defer apiPool.Close()
+
+	workerDBUrl := DATABASE_URL + "?pool_max_conns=2"
+	workerPool, err := pgxpool.New(ctx, workerDBUrl)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to connect to database (Worker): %v\n", err)
+		os.Exit(1)
+	}
+	defer workerPool.Close()
+
 	log.Printf("[INFO] Connected to PostgreSQL")
 
-	api.RegisterDBMetrics(pool)
+	api.RegisterDBMetrics(apiPool)
 
 	kafkaMetrics := kprom.NewMetrics(
 		"trading_api",
@@ -65,8 +74,9 @@ func main() {
 	log.Printf("[INFO] Connected to Kafka")
 
 	orderS := &service.OrderService{
-		DB: pool,
-		KC: kafkaClient,
+		DB:       apiPool,
+		KC:       kafkaClient,
+		DBWorker: workerPool,
 	}
 	orderHandler := &api.OrderHandler{
 		Service: orderS,
