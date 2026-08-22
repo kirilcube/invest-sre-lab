@@ -4,47 +4,68 @@ import { check } from 'k6';
 export const options = {
     timeout: '10s',
     scenarios: {
-        // reads_scenario: {
-        //     executor: 'constant-arrival-rate',
-        //     rate: 40,
-        //     timeUnit: '1s',
-        //     duration: '24h',
-        //     startTime: '10s',
-        //     preAllocatedVUs: 50,
-        //     maxVUs: 1000,
-        //     exec: 'readBalance',
-        // },
         reads_scenario: {
-            executor: 'ramping-arrival-rate',
-            startRate: 5,
+            executor: 'constant-arrival-rate',
+            rate: 40,
             timeUnit: '1s',
+            duration: '24h',
+            startTime: '10s',
             preAllocatedVUs: 50,
             maxVUs: 1000,
-            startTime: '20s',
-
-            stages: [
-                { duration: '1m', target: 5 },
-                { duration: '1m', target: 20 },
-                { duration: '1m', target: 30 },
-
-                { duration: '1m', target: 40 },
-
-                { duration: '24h', target: 40 },
-
-                { duration: '30s', target: 0 },
-            ],
             exec: 'readBalance',
         },
+        // reads_scenario: {
+        //     executor: 'ramping-arrival-rate',
+        //     startRate: 5,
+        //     timeUnit: '1s',
+        //     preAllocatedVUs: 50,
+        //     maxVUs: 1000,
+        //     startTime: '20s',
+        //
+        //     stages: [
+        //         { duration: '1m', target: 5 },
+        //         { duration: '1m', target: 20 },
+        //         { duration: '1m', target: 30 },
+        //
+        //         { duration: '1m', target: 40 },
+        //
+        //         { duration: '24h', target: 40 },
+        //
+        //         { duration: '30s', target: 0 },
+        //     ],
+        //     exec: 'readBalance',
+        // },
         orders_scenario: {
             executor: 'constant-arrival-rate',
-            rate: 3,
+            rate: 1000,
             timeUnit: '1s',
             duration: '24h',
             startTime: '10s',
             preAllocatedVUs: 10,
-            maxVUs: 100,
+            maxVUs: 500,
             exec: 'placeOrder',
         },
+        // orders_scenario: {
+        //     executor: 'ramping-arrival-rate',
+        //     startRate: 5,
+        //     timeUnit: '1s',
+        //     preAllocatedVUs: 50,
+        //     maxVUs: 200,
+        //     startTime: '20s',
+        //
+        //     stages: [
+        //         { duration: '1m', target: 5 },
+        //         { duration: '1m', target: 20 },
+        //         { duration: '1m', target: 30 },
+        //
+        //         { duration: '1m', target: 40 },
+        //
+        //         { duration: '24h', target: 40 },
+        //
+        //         { duration: '30s', target: 0 },
+        //     ],
+        //     exec: 'readBalance',
+        // },
     },
 };
 

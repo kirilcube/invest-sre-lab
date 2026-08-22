@@ -88,7 +88,7 @@ func main() {
 				if err != nil {
 					log.Printf("[ERROR] Error processing record value: %v", record.Value)
 					// in production we'd wanna handle some of the errors
-					// and write to dead messages topic otherwise
+					// and write to dead letter queue topic otherwise
 				}
 
 				kc.MarkCommitRecords(record)

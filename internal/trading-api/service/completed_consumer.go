@@ -54,7 +54,7 @@ func (s *OrderService) RunCompletedOrdersConsumer(ctx context.Context) {
 				if err != nil {
 					log.Printf("[ERROR] Error processing completed err: %v", err)
 					// in production we'd wanna handle some of the errors
-					// and write to dead messages topic otherwise
+					// and write to dead letter queue topic otherwise
 				}
 
 				s.KC.MarkCommitRecords(record)

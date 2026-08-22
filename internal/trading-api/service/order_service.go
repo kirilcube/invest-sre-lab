@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"invest-lab/internal/trading-api/domain"
 	"log"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -138,6 +137,7 @@ func (s *OrderService) GetPostings(ctx context.Context, ownerID string, asset st
 	if err != nil {
 		return nil, fmt.Errorf("failed to query postings: %v", err)
 	}
+	defer rows.Close()
 
 	res := make([]PostingInfo, 0)
 
@@ -150,12 +150,6 @@ func (s *OrderService) GetPostings(ctx context.Context, ownerID string, asset st
 			return nil, fmt.Errorf("failed to scan posting: %v", err)
 		}
 
-		// DO NOT TOUCH THIS FUNC
-		err := heaveFunc(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("heavy func failed: %v", err)
-		}
-
 		res = append(res, PostingInfo{
 			Id:        postingID,
 			AccountID: accountID,
@@ -166,15 +160,6 @@ func (s *OrderService) GetPostings(ctx context.Context, ownerID string, asset st
 	}
 
 	return res, nil
-}
-
-func heaveFunc(ctx context.Context) error {
-	select {
-	case <-time.After(100 * time.Millisecond):
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
 
 func (s *OrderService) FinalizeOrder(ctx context.Context, orderID int) error {

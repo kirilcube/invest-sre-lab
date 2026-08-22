@@ -41,3 +41,5 @@ CREATE TABLE outbox (
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX idx_postings_account_id ON postings(account_id)
