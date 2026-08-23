@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"invest-lab/internal/trading-api/domain"
 	"log"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -16,9 +17,37 @@ import (
 )
 
 type OrderService struct {
-	DB       *pgxpool.Pool
-	DBWorker *pgxpool.Pool
-	KC       *kgo.Client
+	DB          *pgxpool.Pool
+	KC          *kgo.Client
+	creationSem chan struct{}
+}
+
+func NewOrderService(db *pgxpool.Pool, kc *kgo.Client) *OrderService {
+	return &OrderService{
+		DB:          db,
+		KC:          kc,
+		creationSem: make(chan struct{}, 6),
+	}
+}
+
+func (s *OrderService) BeginCreationTx(ctx context.Context) (pgx.Tx, func(), error) {
+	select {
+	case s.creationSem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	}
+
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		s.creationSem <- struct{}{}
+		return nil, nil, fmt.Errorf("BeginCreationTx, failed to begin tx: %v", err)
+	}
+
+	release := func() {
+		s.creationSem <- struct{}{}
+	}
+
+	return tx, release, nil
 }
 
 func (s *OrderService) CreateOrder(ctx context.Context, req domain.OrderInfo, idemKey uuid.UUID) (int, string, error) {
@@ -32,11 +61,12 @@ func (s *OrderService) CreateOrder(ctx context.Context, req domain.OrderInfo, id
 		holdAsset = req.Ticker
 	}
 
-	tx, err := s.DB.Begin(ctx)
+	tx, release, err := s.BeginCreationTx(ctx)
 	if err != nil {
 		return -1, "", fmt.Errorf("failed to begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	defer release()
 
 	accountID, err := s.CheckBalance(ctx, tx, req.OwnerID, holdAsset, holdAmount)
 	if err != nil {
@@ -164,17 +194,21 @@ func (s *OrderService) GetPostings(ctx context.Context, ownerID string, asset st
 }
 
 func (s *OrderService) FinalizeOrder(ctx context.Context, orderID int) error {
+	start := time.Now()
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	log.Printf("[DEBUG] FinalizeOrder aquiring transaction took %v", time.Since(start))
+	insideTransactionTook := time.Now()
 
 	var ticker string
 	var quantity int
 	var ownerID string
 	var side string
 	var price int64
+	getOrderInfoStart := time.Now()
 	err = tx.QueryRow(ctx, `
 		UPDATE orders 
 		SET status = 'EXECUTED' 
@@ -184,6 +218,7 @@ func (s *OrderService) FinalizeOrder(ctx context.Context, orderID int) error {
 	if err != nil {
 		return fmt.Errorf("processCompletedOrder: error writing status to sql: order_id: %d, err: %v", orderID, err)
 	}
+	log.Printf("[DEBUG] FinalizeOrder getOrderInfoStart took %v", time.Since(getOrderInfoStart))
 	var asset string
 	var amount int64
 	if side == "BUY" {
@@ -198,6 +233,7 @@ func (s *OrderService) FinalizeOrder(ctx context.Context, orderID int) error {
 
 	// new transaction record
 	var transactionID int
+	creatingNewTransaction := time.Now()
 	err = tx.QueryRow(ctx, `
 		INSERT INTO transactions (reference_type, reference_id) 
 		VALUES ('ORDER_FINALIZATION', $1) 
@@ -206,12 +242,14 @@ func (s *OrderService) FinalizeOrder(ctx context.Context, orderID int) error {
 	if err != nil {
 		return fmt.Errorf("transaction insert failed: %w", err)
 	}
+	log.Printf("[DEBUG] FinalizeOrder creatingNewTransaction took %v", time.Since(creatingNewTransaction))
 
 	accountID, err := s.getOrCreateAccount(ctx, tx, ownerID, asset)
 	if err != nil {
 		return fmt.Errorf("failed to create account owner_id: %v | asset: %v | err: %w", ownerID, asset, err)
 	}
 
+	insertPostingsUserAccountStart := time.Now()
 	// add assets to user's account
 	_, err = tx.Exec(ctx, `
 		INSERT INTO postings (transaction_id, account_id, amount) 
@@ -220,12 +258,14 @@ func (s *OrderService) FinalizeOrder(ctx context.Context, orderID int) error {
 	if err != nil {
 		return fmt.Errorf("failed to insert posting (1): %w", err)
 	}
+	log.Printf("[DEBUG] FinalizeOrder insertPostingsUserAccountStart took %v", time.Since(insertPostingsUserAccountStart))
 
 	serviceAccID, err := s.GetSystemAccountId(ctx, tx, asset)
 	if err != nil {
 		return fmt.Errorf("failed to get system's account id for %v asset | err: %w", asset, err)
 	}
 
+	insertPostingsServiceAccountStart := time.Now()
 	// remove assets from service's account
 	_, err = tx.Exec(ctx, `
 		INSERT INTO postings (transaction_id, account_id, amount) 
@@ -234,12 +274,15 @@ func (s *OrderService) FinalizeOrder(ctx context.Context, orderID int) error {
 	if err != nil {
 		return fmt.Errorf("failed to insert posting (2): %w", err)
 	}
+	log.Printf("[DEBUG] FinalizeOrder insertPostingsServiceAccountStart took %v", time.Since(insertPostingsServiceAccountStart))
 
+	updateUsersCachedBalance := time.Now()
 	// update user's cached balance
 	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", amount, accountID)
 	if err != nil {
 		return fmt.Errorf("UPDATE accounts (1) failed: %w", err)
 	}
+	log.Printf("[DEBUG] FinalizeOrder updateUsersCachedBalance took %v", time.Since(updateUsersCachedBalance))
 
 	// update service's cached balance
 	//_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", -amount, serviceAccID)
@@ -247,11 +290,15 @@ func (s *OrderService) FinalizeOrder(ctx context.Context, orderID int) error {
 	//	return fmt.Errorf("UPDATE accounts (2) failed: %w", err)
 	//}
 
+	log.Printf("[DEBUG] FinalizeOrder everything inside transaction took %v", time.Since(insideTransactionTook))
+	commitToDbTook := time.Now()
 	// commit
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("tx commit failed: %w", err)
 	}
+	log.Printf("[DEBUG] FinalizeOrder commitToDbTook took %v", time.Since(commitToDbTook))
 
+	log.Printf("[DEBUG] FinalizeOrder took %v", time.Since(start))
 	ordersCompletedSuccessfully.Inc()
 	return nil
 }

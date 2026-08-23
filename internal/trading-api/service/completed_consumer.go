@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -29,7 +30,7 @@ var ordersCompletedWithError = promauto.NewCounter(prometheus.CounterOpts{
 })
 
 func (s *OrderService) RunCompletedOrdersConsumer(ctx context.Context) {
-	sem := make(chan struct{}, 50)
+	sem := make(chan struct{}, 12)
 
 	for {
 		fetches := s.KC.PollFetches(ctx)
@@ -70,10 +71,13 @@ func (s *OrderService) processCompletedOrder(ctx context.Context, record *kgo.Re
 		log.Printf("[CRITICAL] Poison pill detected, skipping: %v. Raw: %s", err, string(record.Value))
 		return nil
 	}
+	start := time.Now()
 
 	log.Printf("[INFO] processCompletedOrder order's id: %d | status: %v | error_message: %v", order.OrderID, order.Status, order.Error)
 	if order.Status != "ERROR" && order.Error == "" {
+		log.Printf("[DEBUG] processCompletedOrder run s.FinalizeOrder order: %d, start: %v", order.OrderID, start)
 		err = s.FinalizeOrder(ctx, order.OrderID)
+		log.Printf("[DEBUG] processCompletedOrder run s.FinalizeOrder done order: %d, it took: %v", order.OrderID, time.Since(start))
 		if err != nil {
 			return fmt.Errorf("failed to finalize order %d | err: %v", order.OrderID, err)
 		}
@@ -90,6 +94,7 @@ func (s *OrderService) processCompletedOrder(ctx context.Context, record *kgo.Re
 		ordersCompletedWithError.Inc()
 		log.Printf("[INFO] Order %d refunded!", order.OrderID)
 	}
+	log.Printf("[DEBUG] processCompletedOrder order: %d done and it took: %v", order.OrderID, time.Since(start))
 
 	return nil
 }

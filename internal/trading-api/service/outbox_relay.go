@@ -10,8 +10,6 @@ import (
 )
 
 func (s *OrderService) RunOutboxRelay(ctx context.Context) {
-	log.Printf("[INFO] Worker db_pool max conns: %d", s.DBWorker.Stat().MaxConns())
-
 	workers := 10
 	for _ = range workers {
 		go func() {
@@ -34,7 +32,7 @@ func (s *OrderService) RunOutboxRelay(ctx context.Context) {
 }
 
 func (s *OrderService) sendMessages(ctx context.Context) error {
-	tx, err := s.DBWorker.Begin(ctx)
+	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to open transaction: %v", err)
 	}

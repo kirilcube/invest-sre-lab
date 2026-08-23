@@ -40,13 +40,6 @@ func main() {
 	}
 	defer apiPool.Close()
 
-	workerPool, err := pgxpool.New(ctx, DATABASE_URL+"?pool_max_conns=2")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to connect to database (Worker): %v\n", err)
-		os.Exit(1)
-	}
-	defer workerPool.Close()
-
 	log.Printf("[INFO] Connected to PostgreSQL")
 
 	api.RegisterDBMetrics(apiPool)
@@ -72,11 +65,7 @@ func main() {
 	defer kafkaClient.Close()
 	log.Printf("[INFO] Connected to Kafka")
 
-	orderS := &service.OrderService{
-		DB:       apiPool,
-		KC:       kafkaClient,
-		DBWorker: workerPool,
-	}
+	orderS := service.NewOrderService(apiPool, kafkaClient)
 	orderHandler := &api.OrderHandler{
 		Service: orderS,
 	}
