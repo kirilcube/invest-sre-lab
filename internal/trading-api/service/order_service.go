@@ -32,19 +32,19 @@ func NewOrderService(db *pgxpool.Pool, kc *kgo.Client) *OrderService {
 
 func (s *OrderService) BeginCreationTx(ctx context.Context) (pgx.Tx, func(), error) {
 	select {
-	case <-s.creationSem:
+	case s.creationSem <- struct{}{}:
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	}
 
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
-		s.creationSem <- struct{}{}
+		<-s.creationSem
 		return nil, nil, fmt.Errorf("BeginCreationTx, failed to begin tx: %v", err)
 	}
 
 	release := func() {
-		s.creationSem <- struct{}{}
+		<-s.creationSem
 	}
 
 	return tx, release, nil
