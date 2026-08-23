@@ -33,15 +33,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	apiPool, err := pgxpool.New(ctx, DATABASE_URL)
+	apiPool, err := pgxpool.New(ctx, DATABASE_URL+"?pool_max_conns=12")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
 		os.Exit(1)
 	}
 	defer apiPool.Close()
 
-	workerDBUrl := DATABASE_URL + "?pool_max_conns=2"
-	workerPool, err := pgxpool.New(ctx, workerDBUrl)
+	workerPool, err := pgxpool.New(ctx, DATABASE_URL+"?pool_max_conns=2")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to connect to database (Worker): %v\n", err)
 		os.Exit(1)

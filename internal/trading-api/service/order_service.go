@@ -142,10 +142,10 @@ func (s *OrderService) GetPostings(ctx context.Context, ownerID string, asset st
 
 	res := make([]PostingInfo, 0)
 
-	var postingID, accountID int
-	var amount int64
-	var refType string
 	for rows.Next() {
+		var postingID, accountID int
+		var amount int64
+		var refType string
 		err = rows.Scan(&accountID, &postingID, &amount, &refType)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan posting: %v", err)
@@ -242,10 +242,10 @@ func (s *OrderService) FinalizeOrder(ctx context.Context, orderID int) error {
 	}
 
 	// update service's cached balance
-	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", -amount, serviceAccID)
-	if err != nil {
-		return fmt.Errorf("UPDATE accounts (2) failed: %w", err)
-	}
+	//_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", -amount, serviceAccID)
+	//if err != nil {
+	//	return fmt.Errorf("UPDATE accounts (2) failed: %w", err)
+	//}
 
 	// commit
 	if err := tx.Commit(ctx); err != nil {
@@ -282,10 +282,10 @@ func (s *OrderService) HoldFunds(ctx context.Context, tx pgx.Tx, orderID int, ac
 	}
 
 	// update service's cached balance
-	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", amount, serviceAccoundID)
-	if err != nil {
-		return fmt.Errorf("UPDATE accounts (2) failed: %w", err)
-	}
+	//_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", amount, serviceAccoundID)
+	//if err != nil {
+	//	return fmt.Errorf("UPDATE accounts (2) failed: %w", err)
+	//}
 
 	return nil
 }
@@ -328,7 +328,7 @@ func (s *OrderService) RefundOrder(ctx context.Context, orderID int) error {
 		UPDATE accounts 
 		SET balance = accounts.balance + p.amount
 		FROM postings p 
-		WHERE p.transaction_id = $1 AND accounts.id = p.account_id
+		WHERE p.transaction_id = $1 AND accounts.id = p.account_id AND accounts.owner_id != 'service'
 	`, transactionID)
 	if err != nil {
 		return fmt.Errorf("failed to update balances: %w", err)
@@ -357,15 +357,24 @@ func (s *OrderService) GetSystemAccountId(ctx context.Context, tx pgx.Tx, asset 
 func (s *OrderService) getOrCreateAccount(ctx context.Context, tx pgx.Tx, ownerID string, asset string) (int, error) {
 	var accountID int
 
-	err := tx.QueryRow(ctx, `
-		INSERT INTO accounts (owner_id, asset, balance)
-		VALUES ($1, $2, 0)
-		ON CONFLICT (owner_id, asset) DO UPDATE SET asset = EXCLUDED.asset
-		RETURNING id
-	`, ownerID, asset).Scan(&accountID)
-
+	//INSERT INTO accounts (owner_id, asset, balance)
+	//		VALUES ($1, $2, 0)
+	//		ON CONFLICT (owner_id, asset) DO UPDATE SET asset = EXCLUDED.asset
+	//		RETURNING id
+	err := tx.QueryRow(ctx, "SELECT id FROM accounts WHERE owner_id = $1 AND asset = $2", ownerID, asset).Scan(&accountID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get/create account owner_id: %v | asset: %v | err: %w", ownerID, asset, err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = tx.QueryRow(ctx, `
+				INSERT INTO accounts (owner_id, asset, balance)
+				VALUES ($1, $2, 0)
+				RETURNING id
+			`, ownerID, asset).Scan(&accountID)
+			if err != nil {
+				return 0, fmt.Errorf("failed to insert account owner_id: %v | asset: %v | err: %w", ownerID, asset, err)
+			}
+		} else {
+			return 0, fmt.Errorf("failed to get account owner_id: %v | asset: %v | err: %w", ownerID, asset, err)
+		}
 	}
 
 	return accountID, nil

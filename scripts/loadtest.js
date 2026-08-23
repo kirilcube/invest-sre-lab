@@ -50,7 +50,7 @@ export const options = {
             startRate: 10,
             timeUnit: '1s',
             preAllocatedVUs: 50,
-            maxVUs: 200,
+            maxVUs: 500,
             // startTime: '10s',
 
             stages: [
