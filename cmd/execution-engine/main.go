@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -106,7 +107,9 @@ func processOrder(ctx context.Context, kc *kgo.Client, record *kgo.Record) error
 	}
 
 	// simulate request to broker
-	time.Sleep(500 * time.Millisecond)
+	baseDelay := 2 * time.Millisecond
+	jitter := time.Duration(rand.Intn(3)) * time.Millisecond
+	time.Sleep(baseDelay + jitter)
 	// use order.OrderID as client_order_id for idempotency
 
 	// - send message to kafka
