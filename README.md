@@ -41,13 +41,19 @@ The infrastructure includes:
 
 **Important:** From commit to commit, the codebase will change. This is not a bug, but rather a feature. It simulates a real-world production environment where multiple people are working on services, and no single engineer knows every line of code. Your best friends here are your observability tools.
 
-### Consistent behavior across different machines
+### ⚠️ A Note on Hardware and Reproducibility
 
 If you look at the `docker-compose.yml` file, you'll notice strict resource limits (e.g., `cpus: '0.5'`, `memory: '512M'`) applied to the PostgreSQL database, Kafka, and the Go service.
 
-This is intentional. In the real world, system performance is relative. A powerful modern CPU can execute a Full Table Scan so fast that it might mask underlying architectural flaws, even at hundreds of RPS. On weaker hardware, the exact same system might collapse at just 30 RPS.
+This is intentional. In the real world, a powerful modern CPU can execute a Full Table Scan or process network I/O so fast that it might mask underlying architectural flaws. To make this SRE lab educational, I artificially bottleneck the containers to force the system into a state of resource starvation, exposing concurrency bugs, lock contentions, and connection pool exhaustion.
 
-To make this SRE lab predictable and educational, I artificially bottleneck the containers. So whether you run it on an old laptop or a high-end server, the Saturation Cliff will occur predictably at a similar RPS threshold.
+**However, your exact breaking point may vary.**
+It is important to note that Docker's CPU limit (`cpus: '0.5'`) restricts *execution time* (e.g., allocating 50ms of CPU time per 100ms), not clock speed. A high-end desktop processor will still execute more instructions during that 50ms window than an older laptop. Therefore, while the *nature* of the incident will be the same, the exact RPS (Requests Per Second) where the "Saturation Cliff" occurs will depend on your hardware.
+
+> **🖥️ Baseline Reference:**
+> The metrics and RPS thresholds mentioned in the incident logs were recorded on my laptop with **Intel Core i5-12450H**.
+>
+> *If you're running on very different CPU, you might need to play with config inside `scripts/loadtest.js` to increase rps.*
 
 ### Microservices Architecture
 
