@@ -32,7 +32,7 @@ func NewOrderService(db *pgxpool.Pool, kc *kgo.Client) *OrderService {
 
 func (s *OrderService) BeginCreationTx(ctx context.Context) (pgx.Tx, func(), error) {
 	select {
-	case s.creationSem <- struct{}{}:
+	case <-s.creationSem:
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	}
