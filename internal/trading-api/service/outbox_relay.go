@@ -10,7 +10,7 @@ import (
 )
 
 func (s *OrderService) RunOutboxRelay(ctx context.Context) {
-	workers := 10
+	workers := 2
 	for _ = range workers {
 		go func() {
 			ticker := time.NewTicker(1 * time.Second)

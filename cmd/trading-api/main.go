@@ -65,10 +65,33 @@ func main() {
 	defer kafkaClient.Close()
 	log.Printf("[INFO] Connected to Kafka")
 
-	orderS := service.NewOrderService(apiPool, kafkaClient)
+	for {
+		if ctx.Err() != nil {
+			log.Fatalf("[FATAL] Shutting down while waiting for DB: %v", ctx.Err())
+		}
+
+		err := apiPool.Ping(ctx)
+		if err == nil {
+			break
+		}
+
+		log.Printf("[WARN] DB not ready yet (%v), retrying in 1 second...", err)
+
+		select {
+		case <-ctx.Done():
+			log.Fatalf("[FATAL] Shutting down while waiting for DB: %v", ctx.Err())
+		case <-time.After(1 * time.Second):
+		}
+	}
+
+	orderS, err := service.NewOrderService(ctx, apiPool, kafkaClient)
+	if err != nil {
+		log.Fatalf("[FATAL] Failed to create NewOrderService: %v", err)
+	}
 	orderHandler := &api.OrderHandler{
 		Service: orderS,
 	}
+
 	go orderS.RunOutboxRelay(ctx)
 	go orderS.RunCompletedOrdersConsumer(ctx)
 

@@ -24,7 +24,7 @@ const TOPIC_COMPLETED = "orders.completed"
 const CONSUMER_GROUP = "execution-engine-group"
 
 type PendingOrder struct {
-	OrderID  int    `json:"order_id"`
+	OrderID  string `json:"order_id"`
 	Ticker   string `json:"ticker"`
 	Side     string `json:"side"`
 	Quantity int    `json:"quantity"`
@@ -32,7 +32,7 @@ type PendingOrder struct {
 }
 
 type CompletedOrderRecord struct {
-	OrderID   int    `json:"order_id"`
+	OrderID   string `json:"order_id"`
 	Status    string `json:"status"`
 	Error     string `json:"error_message"`
 	Timestamp int64  `json:"timestamp"`
@@ -124,7 +124,7 @@ func processOrder(ctx context.Context, kc *kgo.Client, record *kgo.Record) error
 	return nil
 }
 
-func produceCompletedMessage(ctx context.Context, kc *kgo.Client, consumedRecord *kgo.Record, orderID int, status string, errorMessage string) error {
+func produceCompletedMessage(ctx context.Context, kc *kgo.Client, consumedRecord *kgo.Record, orderID string, status string, errorMessage string) error {
 	resp := CompletedOrderRecord{
 		OrderID:   orderID,
 		Status:    status,
