@@ -12,7 +12,7 @@ import (
 )
 
 type CompletedOrderRecord struct {
-	OrderID   int    `json:"order_id"`
+	OrderID   string `json:"order_id"`
 	Status    string `json:"status"`
 	Error     string `json:"error_message"`
 	Timestamp int64  `json:"timestamp"`
@@ -29,7 +29,7 @@ var ordersCompletedWithError = promauto.NewCounter(prometheus.CounterOpts{
 })
 
 func (s *OrderService) RunCompletedOrdersConsumer(ctx context.Context) {
-	sem := make(chan struct{}, 50)
+	sem := make(chan struct{}, 6)
 
 	for {
 		fetches := s.KC.PollFetches(ctx)

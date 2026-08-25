@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,7 +24,7 @@ const TOPIC_COMPLETED = "orders.completed"
 const CONSUMER_GROUP = "execution-engine-group"
 
 type PendingOrder struct {
-	OrderID  int    `json:"order_id"`
+	OrderID  string `json:"order_id"`
 	Ticker   string `json:"ticker"`
 	Side     string `json:"side"`
 	Quantity int    `json:"quantity"`
@@ -31,7 +32,7 @@ type PendingOrder struct {
 }
 
 type CompletedOrderRecord struct {
-	OrderID   int    `json:"order_id"`
+	OrderID   string `json:"order_id"`
 	Status    string `json:"status"`
 	Error     string `json:"error_message"`
 	Timestamp int64  `json:"timestamp"`
@@ -68,6 +69,7 @@ func main() {
 
 	sem := make(chan struct{}, 50)
 
+	var wg sync.WaitGroup
 	for {
 		fetches := kc.PollFetches(ctx)
 		if fetches.IsClientClosed() || ctx.Err() != nil {
@@ -82,20 +84,22 @@ func main() {
 		fetches.EachRecord(func(rec *kgo.Record) {
 			sem <- struct{}{}
 
+			wg.Add(1)
 			go func(record *kgo.Record) {
+				defer wg.Done()
 				defer func() { <-sem }()
 
-				err := processOrder(ctx, kc, record)
+				err := processOrder(context.Background(), kc, record)
 				if err != nil {
 					log.Printf("[ERROR] Error processing record value: %v", record.Value)
 					// in production we'd wanna handle some of the errors
 					// and write to dead letter queue topic otherwise
 				}
-
-				kc.MarkCommitRecords(record)
 			}(rec)
 		})
 	}
+
+	wg.Wait()
 }
 
 func processOrder(ctx context.Context, kc *kgo.Client, record *kgo.Record) error {
@@ -113,14 +117,14 @@ func processOrder(ctx context.Context, kc *kgo.Client, record *kgo.Record) error
 	// use order.OrderID as client_order_id for idempotency
 
 	// - send message to kafka
-	err = produceCompletedMessage(ctx, kc, order.OrderID, "SUCCESS", "")
+	err = produceCompletedMessage(ctx, kc, record, order.OrderID, "SUCCESS", "")
 	if err != nil {
 		return fmt.Errorf("failed to produce message to kafka: %v", err)
 	}
 	return nil
 }
 
-func produceCompletedMessage(ctx context.Context, kc *kgo.Client, orderID int, status string, errorMessage string) error {
+func produceCompletedMessage(ctx context.Context, kc *kgo.Client, consumedRecord *kgo.Record, orderID string, status string, errorMessage string) error {
 	resp := CompletedOrderRecord{
 		OrderID:   orderID,
 		Status:    status,
@@ -132,13 +136,16 @@ func produceCompletedMessage(ctx context.Context, kc *kgo.Client, orderID int, s
 		return fmt.Errorf("error marshaling resp into json: %v", err)
 	}
 
-	err = kc.ProduceSync(ctx, &kgo.Record{
+	kc.Produce(ctx, &kgo.Record{
 		Value: value,
 		Topic: TOPIC_COMPLETED,
-	}).FirstErr()
-	if err != nil {
-		return fmt.Errorf("error producing to topic %v, err: %v", TOPIC_COMPLETED, err)
-	}
+	}, func(_ *kgo.Record, err error) {
+		if err != nil {
+			log.Printf("[ERR] producing to orders.completed: %v", err)
+			// write to dead letters queue SYNC.
+		}
+		kc.MarkCommitRecords(consumedRecord)
+	})
 
 	return nil
 }

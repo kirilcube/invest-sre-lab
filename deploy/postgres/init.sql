@@ -9,21 +9,21 @@ CREATE TABLE accounts (
 );
 
 CREATE TABLE transactions (
-    id SERIAL PRIMARY KEY,
+    id CHAR(26) PRIMARY KEY,
     reference_type VARCHAR(50),
-    reference_id INT,
+    reference_id CHAR(26),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE postings (
     id SERIAL PRIMARY KEY,
-    transaction_id INT REFERENCES transactions(id),
+    transaction_id CHAR(26) REFERENCES transactions(id),
     account_id INT REFERENCES accounts(id),
     amount BIGINT NOT NULL
 );
 
 CREATE TABLE orders (
-    id SERIAL PRIMARY KEY,
+    id CHAR(26) PRIMARY KEY,
     owner_id VARCHAR(50) NOT NULL,
     ticker VARCHAR(10) NOT NULL,
     side VARCHAR(4) NOT NULL,
