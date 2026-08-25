@@ -30,6 +30,7 @@ const TOPIC_COMPLETED = "orders.completed"
 const CONSUMER_GROUP = "trading-api-group"
 
 func main() {
+	//TODO: projector for service accounts.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

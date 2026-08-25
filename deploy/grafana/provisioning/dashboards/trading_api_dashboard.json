@@ -4,20 +4,20 @@
   "metadata": {
     "name": "admb287",
     "namespace": "default",
-    "uid": "7a466e39-6bd5-4608-a446-057c3310d587",
-    "resourceVersion": "1787585828355002",
+    "uid": "117eefc5-d50a-4a82-afb4-655f77ae9e5a",
+    "resourceVersion": "1787586435888017",
     "generation": 1,
-    "creationTimestamp": "2026-08-24T15:37:08Z",
+    "creationTimestamp": "2026-08-24T15:47:15Z",
     "labels": {
-      "grafana.app/deprecatedInternalID": "2242473562570752"
+      "grafana.app/deprecatedInternalID": "2245021739421696"
     },
     "annotations": {
       "grafana.app/createdBy": "access-policy:service",
       "grafana.app/managedBy": "classic-file-provisioning",
       "grafana.app/managerId": "Default Dashboards",
-      "grafana.app/sourceChecksum": "1b9bb478c445ad6e08ce2a2ebea52fde",
+      "grafana.app/sourceChecksum": "9f87751c7ed0b12181ef7f4d39b48012",
       "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/trading_api_dashboard.json",
-      "grafana.app/sourceTimestamp": "1787494914000",
+      "grafana.app/sourceTimestamp": "1787586188000",
       "grafana.app/folder": ""
     }
   },
@@ -1349,11 +1349,11 @@
                       },
                       {
                         "color": "#EAB839",
-                        "value": 100
+                        "value": 1000
                       },
                       {
                         "color": "red",
-                        "value": 500
+                        "value": 3000
                       }
                     ]
                   }

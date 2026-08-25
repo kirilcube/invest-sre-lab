@@ -31,7 +31,7 @@ func NewOrderService(ctx context.Context, db *pgxpool.Pool, kc *kgo.Client) (*Or
 	return &OrderService{
 		DB:                db,
 		KC:                kc,
-		creationSem:       make(chan struct{}, 6),
+		creationSem:       make(chan struct{}, 5),
 		serviceAccountIDs: m,
 	}, nil
 }

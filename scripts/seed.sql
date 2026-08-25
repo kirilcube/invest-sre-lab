@@ -8,7 +8,7 @@ $$ LANGUAGE plpgsql;
 
 
 INSERT INTO accounts (owner_id, asset, balance)
-VALUES ('service', 'USD', -150000000000);
+VALUES ('service', 'USD', 0);
 
 INSERT INTO accounts (owner_id, asset, balance)
 VALUES ('service', 'AAPL', 0);
