@@ -10,7 +10,7 @@ export const options = {
             maxVUs: 100,
             timeUnit: '1s',
             duration: '24h',
-            startTime: '10s',
+            startTime: '20s',
             preAllocatedVUs: 50,
             exec: 'readBalance',
         },
@@ -51,7 +51,7 @@ export const options = {
             timeUnit: '1s',
             preAllocatedVUs: 50,
             maxVUs: 500,
-            // startTime: '10s',
+            startTime: '20s',
 
             stages: [
                 { duration: '10s', target: 10 },

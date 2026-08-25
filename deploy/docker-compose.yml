@@ -165,18 +165,18 @@ services:
       kafka-setup:
         condition: service_completed_successfully
 
-#  k6:
-#    image: grafana/k6:latest
-#    environment:
-#      - API_URL=http://trading-api:8080
-#    command: run /scripts/loadtest.js
-#    volumes:
-#      - ../scripts/loadtest.js:/scripts/loadtest.js:ro
-#    depends_on:
-#      trading-api:
-#        condition: service_started
-#      postgres:
-#          condition: service_healthy
+  k6:
+    image: grafana/k6:latest
+    environment:
+      - API_URL=http://trading-api:8080
+    command: run /scripts/loadtest.js
+    volumes:
+      - ../scripts/loadtest.js:/scripts/loadtest.js:ro
+    depends_on:
+      trading-api:
+        condition: service_started
+      postgres:
+          condition: service_healthy
 volumes:
   postgres_data:
   kafka_data:
