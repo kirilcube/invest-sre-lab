@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"invest-lab/internal/trading-api/domain"
-	"invest-lab/internal/utils"
 	"log"
 
 	"github.com/google/uuid"
@@ -17,68 +16,11 @@ import (
 )
 
 type OrderService struct {
-	DB                *pgxpool.Pool
-	KC                *kgo.Client
-	creationSem       chan struct{}
-	serviceAccountIDs map[string]int //asset -> id
+	DB *pgxpool.Pool
+	KC *kgo.Client
 }
 
-func NewOrderService(ctx context.Context, db *pgxpool.Pool, kc *kgo.Client) (*OrderService, error) {
-	m, err := cacheServiceAccountIDs(ctx, db)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Order Service: %v", err)
-	}
-	return &OrderService{
-		DB:                db,
-		KC:                kc,
-		creationSem:       make(chan struct{}, 5),
-		serviceAccountIDs: m,
-	}, nil
-}
-
-func cacheServiceAccountIDs(ctx context.Context, db *pgxpool.Pool) (map[string]int, error) {
-	rows, err := db.Query(ctx, "SELECT id, asset FROM accounts WHERE owner_id = 'service'")
-	if err != nil {
-		return nil, fmt.Errorf("query service account ids: %v", err)
-	}
-	defer rows.Close()
-
-	m := make(map[string]int)
-
-	for rows.Next() {
-		var id int
-		var asset string
-		err = rows.Scan(&id, &asset)
-		if err != nil {
-			return nil, fmt.Errorf("rows scan failed: %v", err)
-		}
-		m[asset] = id
-	}
-
-	return m, nil
-}
-
-func (s *OrderService) BeginCreationTx(ctx context.Context) (pgx.Tx, func(), error) {
-	select {
-	case s.creationSem <- struct{}{}:
-	case <-ctx.Done():
-		return nil, nil, ctx.Err()
-	}
-
-	tx, err := s.DB.Begin(ctx)
-	if err != nil {
-		<-s.creationSem
-		return nil, nil, fmt.Errorf("BeginCreationTx, failed to begin tx: %v", err)
-	}
-
-	release := func() {
-		<-s.creationSem
-	}
-
-	return tx, release, nil
-}
-
-func (s *OrderService) CreateOrder(ctx context.Context, req domain.OrderInfo, idemKey uuid.UUID) (string, string, error) {
+func (s *OrderService) CreateOrder(ctx context.Context, req domain.OrderInfo, idemKey uuid.UUID) (int, string, error) {
 	var holdAmount int64
 	var holdAsset string
 	if req.Side == "BUY" {
@@ -89,106 +31,75 @@ func (s *OrderService) CreateOrder(ctx context.Context, req domain.OrderInfo, id
 		holdAsset = req.Ticker
 	}
 
-	tx, release, err := s.BeginCreationTx(ctx)
+	tx, err := s.DB.Begin(ctx)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to begin tx: %w", err)
+		return -1, "", fmt.Errorf("failed to begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	defer release()
 
-	serviceAccountID, err := s.GetSystemAccountId(holdAsset)
+	accountID, err := s.CheckBalance(ctx, tx, req.OwnerID, holdAsset, holdAmount)
 	if err != nil {
-		return "", "", err
+		return -1, "", err
 	}
 
-	orderID := utils.GenerateULID()
-	transactionID := utils.GenerateULID()
-
-	batch := &pgx.Batch{}
-
-	batch.Queue(`
-		UPDATE accounts
-		SET balance = balance - $1
-		WHERE owner_id = $2 AND asset = $3 AND balance >= $1`,
-		holdAmount, req.OwnerID, holdAsset,
-	)
-
-	batch.Queue(`
-		INSERT INTO orders 
-		    (id, owner_id, ticker, side, quantity, price, status, idempotency_key) 
-		VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', $7)`,
-		orderID, req.OwnerID, req.Ticker, req.Side, req.Quantity, req.Price, idemKey)
-
-	batch.Queue(`
-			INSERT INTO transactions 
-			    (id, reference_type, reference_id) 
-			VALUES ($1, 'ORDER_EXECUTION', $2)`,
-		transactionID, orderID)
-
-	batch.Queue(`
-		INSERT INTO postings 
-		    (transaction_id, account_id, amount) 
-		SELECT $1, id, $2 
-		FROM accounts WHERE owner_id = $3 AND asset = $4`,
-		transactionID, -holdAmount, req.OwnerID, holdAsset,
-	)
-
-	batch.Queue(`
-		INSERT INTO postings 
-		    (transaction_id, account_id, amount) 
-		VALUES ($1, $2, $3)`,
-		transactionID, serviceAccountID, holdAmount)
-
-	payload, err := json.Marshal(map[string]any{
-		"order_id": orderID,
-		"ticker":   req.Ticker,
-		"side":     req.Side,
-		"quantity": req.Quantity,
-		"price":    req.Price,
-	})
+	serviceAccoundID, err := s.GetSystemAccountId(ctx, tx, holdAsset)
 	if err != nil {
-		return "", "", fmt.Errorf("failed json.marshal %v", err)
-	}
-	batch.Queue(`
-			INSERT INTO outbox 
-			    (aggregate_type, aggregate_id, payload) 
-			VALUES ('ORDER', $1, $2)`,
-		orderID,
-		payload,
-	)
-	br := tx.SendBatch(ctx, batch)
-	accountQueryRes, accQueryErr := br.Exec()
-	_, orderQueryErr := br.Exec()
-	batchErr := br.Close()
-
-	if accQueryErr != nil {
-		return "", "", fmt.Errorf("update balance error: %v", accQueryErr)
-	}
-	if accountQueryRes.RowsAffected() == 0 {
-		return "", "", fmt.Errorf("insufficient balance")
+		return -1, "", err
 	}
 
-	if orderQueryErr != nil {
+	var orderID int
+	err = tx.QueryRow(ctx,
+		"INSERT INTO orders (owner_id, ticker, side, quantity, price, status, idempotency_key) VALUES ($1, $2, $3, $4, $5, 'PENDING', $6) RETURNING id",
+		req.OwnerID, req.Ticker, req.Side, req.Quantity, req.Price, idemKey,
+	).Scan(&orderID)
+	if err != nil {
+		// Обрабатываем ошибку уникальности ключа идемпотентности
 		var pgErr *pgconn.PgError
-		if errors.As(orderQueryErr, &pgErr) && pgErr.Code == "23505" {
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			log.Printf("[WARN] create order, idempotency key hit: %v", idemKey)
 			existingID, err := s.getOrderByIdempotencyKey(ctx, idemKey)
 			if err != nil {
-				return "", "", fmt.Errorf("order exists but failed to select it's id: %w", err)
+				return -1, "", fmt.Errorf("order exists but failed to select it's id: %w", err)
 			}
 			return existingID, "ALREADY_EXISTED", nil
 		}
-		return "", "", orderQueryErr
+		return 0, "", err
 	}
-	if batchErr != nil {
-		return "", "", fmt.Errorf("batchErr: %v", batchErr)
+
+	err = s.HoldFunds(ctx, tx, orderID, accountID, serviceAccoundID, holdAmount)
+	if err != nil {
+		return -1, "", fmt.Errorf("failed to hold funds: %w", err)
+	}
+
+	if err = s.sendMessage(ctx, tx, orderID, req); err != nil {
+		return 0, "", fmt.Errorf("writing to outbox failed: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return "", "", fmt.Errorf("tx commit failed: %w", err)
+		return 0, "", fmt.Errorf("tx commit failed: %w", err)
 	}
 
 	return orderID, "ACCEPTED", nil
+}
+
+func (s *OrderService) CheckBalance(ctx context.Context, tx pgx.Tx, ownerID string, asset string, minAmount int64) (int, error) {
+	var balance int64
+	var accountID int
+	err := tx.QueryRow(
+		ctx,
+		"SELECT balance, id FROM accounts WHERE owner_id=$1 AND asset=$2 FOR UPDATE",
+		ownerID,
+		asset,
+	).Scan(&balance, &accountID)
+	if err != nil {
+		return -1, fmt.Errorf("CheckBalance, account not found %w", err)
+	}
+
+	if balance < minAmount {
+		return -1, fmt.Errorf("not enough funds")
+	}
+
+	return accountID, nil
 }
 
 func (s *OrderService) GetBalance(ctx context.Context, ownerID string, asset string) (int64, error) {
@@ -196,7 +107,7 @@ func (s *OrderService) GetBalance(ctx context.Context, ownerID string, asset str
 	var accountID int
 	err := s.DB.QueryRow(
 		ctx,
-		"SELECT balance, id FROM accounts WHERE owner_id=$1 AND asset=$2",
+		"SELECT balance, id FROM accounts WHERE owner_id=$1 AND asset=$2 FOR UPDATE",
 		ownerID,
 		asset,
 	).Scan(&balance, &accountID)
@@ -230,10 +141,10 @@ func (s *OrderService) GetPostings(ctx context.Context, ownerID string, asset st
 
 	res := make([]PostingInfo, 0)
 
+	var postingID, accountID int
+	var amount int64
+	var refType string
 	for rows.Next() {
-		var postingID, accountID int
-		var amount int64
-		var refType string
 		err = rows.Scan(&accountID, &postingID, &amount, &refType)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan posting: %v", err)
@@ -251,7 +162,7 @@ func (s *OrderService) GetPostings(ctx context.Context, ownerID string, asset st
 	return res, nil
 }
 
-func (s *OrderService) FinalizeOrder(ctx context.Context, orderID string) error {
+func (s *OrderService) FinalizeOrder(ctx context.Context, orderID int) error {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin tx: %w", err)
@@ -270,11 +181,7 @@ func (s *OrderService) FinalizeOrder(ctx context.Context, orderID string) error 
 		RETURNING ticker, quantity, owner_id, side, price
 	`, orderID).Scan(&ticker, &quantity, &ownerID, &side, &price)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			log.Printf("[INFO] Order %s is already finalized or does not exist", orderID)
-			return nil
-		}
-		return fmt.Errorf("error updating order status: order_id: %s, err: %w", orderID, err)
+		return fmt.Errorf("processCompletedOrder: error writing status to sql: order_id: %d, err: %v", orderID, err)
 	}
 	var asset string
 	var amount int64
@@ -285,54 +192,61 @@ func (s *OrderService) FinalizeOrder(ctx context.Context, orderID string) error 
 		asset = "USD"
 		amount = int64(quantity) * price
 	} else {
-		return fmt.Errorf("side (%v) must be either SELL or BUY for order %v", side, orderID)
+		return fmt.Errorf("side (%v) must be either SELL or BUY for order %d", side, orderID)
 	}
 
-	serviceAccID, err := s.GetSystemAccountId(asset)
+	// new transaction record
+	var transactionID int
+	err = tx.QueryRow(ctx, `
+		INSERT INTO transactions (reference_type, reference_id) 
+		VALUES ('ORDER_FINALIZATION', $1) 
+		RETURNING id
+	`, orderID).Scan(&transactionID)
+	if err != nil {
+		return fmt.Errorf("transaction insert failed: %w", err)
+	}
+
+	accountID, err := s.getOrCreateAccount(ctx, tx, ownerID, asset)
+	if err != nil {
+		return fmt.Errorf("failed to create account owner_id: %v | asset: %v | err: %w", ownerID, asset, err)
+	}
+
+	// add assets to user's account
+	_, err = tx.Exec(ctx, `
+		INSERT INTO postings (transaction_id, account_id, amount) 
+		VALUES ($1, $2, $3)
+	`, transactionID, accountID, amount)
+	if err != nil {
+		return fmt.Errorf("failed to insert posting (1): %w", err)
+	}
+
+	serviceAccID, err := s.GetSystemAccountId(ctx, tx, asset)
 	if err != nil {
 		return fmt.Errorf("failed to get system's account id for %v asset | err: %w", asset, err)
 	}
 
-	var accountID int
-	err = tx.QueryRow(ctx, `
-		INSERT INTO accounts
-		(owner_id, asset, balance)
-		VALUES ($1, $2, $3) 
-		ON CONFLICT (owner_id, asset) DO UPDATE  
-		SET balance = accounts.balance + $3
-		RETURNING id
-	`, ownerID, asset, amount).Scan(&accountID)
-	if err != nil {
-		return fmt.Errorf("insert user's account (optional) AND update user's balance owner: %v, asset: %v, order: %v, err: %w", ownerID, asset, orderID, err)
-	}
-
-	batch := &pgx.Batch{}
-	transactionID := utils.GenerateULID()
-
-	batch.Queue(`
-		INSERT INTO transactions 
-		    (id, reference_type, reference_id) 
-		VALUES ($1, 'ORDER_FINALIZATION', $2)`,
-		transactionID, orderID,
-	)
-	// add assets to user's account
-	batch.Queue(`
-		INSERT INTO postings (transaction_id, account_id, amount) 
-		VALUES ($1, $2, $3)`,
-		transactionID, accountID, amount,
-	)
 	// remove assets from service's account
-	batch.Queue(`
+	_, err = tx.Exec(ctx, `
 		INSERT INTO postings (transaction_id, account_id, amount) 
-		VALUES ($1, $2, $3)`,
-		transactionID, serviceAccID, -amount,
-	)
-
-	err = tx.SendBatch(ctx, batch).Close()
+		VALUES ($1, $2, $3)
+	`, transactionID, serviceAccID, -amount)
 	if err != nil {
-		return fmt.Errorf("batch failed: %v", err)
+		return fmt.Errorf("failed to insert posting (2): %w", err)
 	}
 
+	// update user's cached balance
+	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", amount, accountID)
+	if err != nil {
+		return fmt.Errorf("UPDATE accounts (1) failed: %w", err)
+	}
+
+	// update service's cached balance
+	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", -amount, serviceAccID)
+	if err != nil {
+		return fmt.Errorf("UPDATE accounts (2) failed: %w", err)
+	}
+
+	// commit
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("tx commit failed: %w", err)
 	}
@@ -341,51 +255,82 @@ func (s *OrderService) FinalizeOrder(ctx context.Context, orderID string) error 
 	return nil
 }
 
-func (s *OrderService) RefundOrder(ctx context.Context, orderID string) error {
+func (s *OrderService) HoldFunds(ctx context.Context, tx pgx.Tx, orderID int, accountID int, serviceAccoundID int, amount int64) error {
+	// create transaction
+	var transactionID int
+	err := tx.QueryRow(ctx, "INSERT INTO transactions (reference_type, reference_id) VALUES ('ORDER_EXECUTION', $1) RETURNING id", orderID).Scan(&transactionID)
+	if err != nil {
+		return fmt.Errorf("transaction insert failed: %w", err)
+	}
+
+	// first entry (remove from user)
+	_, err = tx.Exec(ctx, "INSERT INTO postings (transaction_id, account_id, amount) VALUES ($1, $2, $3)", transactionID, accountID, -amount)
+	if err != nil {
+		return fmt.Errorf("postings insert (1) failed: %w", err)
+	}
+	// second entry (add to service)
+	_, err = tx.Exec(ctx, "INSERT INTO postings (transaction_id, account_id, amount) VALUES ($1, $2, $3)", transactionID, serviceAccoundID, amount)
+	if err != nil {
+		return fmt.Errorf("postings insert (2) failed: %w", err)
+	}
+
+	// update user's cached balance
+	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", -amount, accountID)
+	if err != nil {
+		return fmt.Errorf("UPDATE accounts (1) failed: %w", err)
+	}
+
+	// update service's cached balance
+	_, err = tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", amount, serviceAccoundID)
+	if err != nil {
+		return fmt.Errorf("UPDATE accounts (2) failed: %w", err)
+	}
+
+	return nil
+}
+func (s *OrderService) RefundOrder(ctx context.Context, orderID int) error {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	batch := &pgx.Batch{}
+	res, err := tx.Exec(ctx, "UPDATE orders SET status = 'REJECTED' WHERE id = $1 AND status = 'PENDING'", orderID)
+	if err != nil {
+		return fmt.Errorf("error updating order's status order: %d | err: %v", orderID, err)
+	}
+	if res.RowsAffected() != 1 {
+		log.Printf("[WARN] RefundOrder, tried to refund order that's either not found or not PENDING. order: %d", orderID)
+		return nil
+	}
 
-	batch.Queue("UPDATE orders SET status = 'REJECTED' WHERE id = $1 AND status = 'PENDING'", orderID)
+	var transactionID int
+	err = tx.QueryRow(ctx, "INSERT INTO transactions (reference_type, reference_id) VALUES ('ORDER_REFUND', $1) RETURNING id", orderID).Scan(&transactionID)
+	if err != nil {
+		return fmt.Errorf("transaction insert failed: %w", err)
+	}
 
-	transactionID := utils.GenerateULID()
-	batch.Queue(`
-		INSERT INTO transactions 
-		    (id, reference_type, reference_id)
-		VALUES ($1, 'ORDER_REFUND', $2)`,
-		transactionID, orderID)
-
-	batch.Queue(`
+	res, err = tx.Exec(ctx, `
 		INSERT INTO postings (transaction_id, account_id, amount)
 		SELECT $1, account_id, -amount
 		FROM postings
 		WHERE transaction_id = (SELECT id FROM transactions WHERE reference_id = $2 AND reference_type = 'ORDER_EXECUTION')
-`, transactionID, orderID)
+	`, transactionID, orderID)
+	if err != nil {
+		return fmt.Errorf("failed to insert new postings: %w", err)
+	}
+	if res.RowsAffected() != 2 {
+		return fmt.Errorf("we expect to insert exactly two new postings per refund (double-entry). rows-affected: %d", res.RowsAffected())
+	}
 
-	batch.Queue(`
+	_, err = tx.Exec(ctx, `
 		UPDATE accounts 
 		SET balance = accounts.balance + p.amount
 		FROM postings p 
-		WHERE p.transaction_id = $1 AND accounts.id = p.account_id AND accounts.owner_id != 'service'
-`, transactionID)
-
-	br := tx.SendBatch(ctx, batch)
-	ordersRes, ordersQueryErr := br.Exec()
-	batchErr := br.Close()
-
-	if ordersQueryErr != nil {
-		return fmt.Errorf("error updating order status: order_id: %s, err: %w", orderID, ordersQueryErr)
-	}
-	if ordersRes.RowsAffected() != 1 {
-		log.Printf("[INFO] Order %s is already rejected or does not exist", orderID)
-		return nil
-	}
-	if batchErr != nil {
-		return fmt.Errorf("batch error: %v", batchErr)
+		WHERE p.transaction_id = $1 AND accounts.id = p.account_id
+	`, transactionID)
+	if err != nil {
+		return fmt.Errorf("failed to update balances: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -394,15 +339,52 @@ func (s *OrderService) RefundOrder(ctx context.Context, orderID string) error {
 	return nil
 }
 
-func (s *OrderService) getOrderByIdempotencyKey(ctx context.Context, idemKey uuid.UUID) (string, error) {
-	var orderID string
+func (s *OrderService) getOrderByIdempotencyKey(ctx context.Context, idemKey uuid.UUID) (int, error) {
+	var orderID int
 	err := s.DB.QueryRow(ctx, "SELECT id FROM orders WHERE idempotency_key=$1", idemKey).Scan(&orderID)
 	return orderID, err
 }
-func (s *OrderService) GetSystemAccountId(asset string) (int, error) {
-	id, ok := s.serviceAccountIDs[asset]
-	if !ok {
-		return -1, fmt.Errorf("No service account id for asset %v found", asset)
+func (s *OrderService) GetSystemAccountId(ctx context.Context, tx pgx.Tx, asset string) (int, error) {
+	return s.getOrCreateAccount(ctx, tx, "service", asset)
+}
+
+func (s *OrderService) getOrCreateAccount(ctx context.Context, tx pgx.Tx, ownerID string, asset string) (int, error) {
+	var accountID int
+
+	err := tx.QueryRow(ctx, `
+		INSERT INTO accounts (owner_id, asset, balance)
+		VALUES ($1, $2, 0)
+		ON CONFLICT (owner_id, asset) DO UPDATE SET asset = EXCLUDED.asset
+		RETURNING id
+	`, ownerID, asset).Scan(&accountID)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to get/create account owner_id: %v | asset: %v | err: %w", ownerID, asset, err)
 	}
-	return id, nil
+
+	return accountID, nil
+}
+
+func (s *OrderService) sendMessage(ctx context.Context, tx pgx.Tx, orderID int, req domain.OrderInfo) error {
+	payload, err := json.Marshal(map[string]any{
+		"order_id": orderID,
+		"ticker":   req.Ticker,
+		"side":     req.Side,
+		"quantity": req.Quantity,
+		"price":    req.Price,
+	})
+	if err != nil {
+		return fmt.Errorf("failed json.marshal %v", err)
+	}
+
+	_, err = tx.Exec(
+		ctx,
+		"INSERT INTO outbox (aggregate_type, aggregate_id, payload) VALUES ('ORDER', $1, $2)",
+		fmt.Sprintf("%d", orderID),
+		payload,
+	)
+	if err != nil {
+		return fmt.Errorf("failed inserting into outbox %v", err)
+	}
+	return nil
 }

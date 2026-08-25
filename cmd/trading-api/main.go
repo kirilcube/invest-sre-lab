@@ -30,20 +30,18 @@ const TOPIC_COMPLETED = "orders.completed"
 const CONSUMER_GROUP = "trading-api-group"
 
 func main() {
-	//TODO: projector for service accounts.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	apiPool, err := pgxpool.New(ctx, DATABASE_URL+"?pool_max_conns=12")
+	pool, err := pgxpool.New(ctx, DATABASE_URL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
 		os.Exit(1)
 	}
-	defer apiPool.Close()
-
+	defer pool.Close()
 	log.Printf("[INFO] Connected to PostgreSQL")
 
-	api.RegisterDBMetrics(apiPool)
+	api.RegisterDBMetrics(pool)
 
 	kafkaMetrics := kprom.NewMetrics(
 		"trading_api",
@@ -66,33 +64,13 @@ func main() {
 	defer kafkaClient.Close()
 	log.Printf("[INFO] Connected to Kafka")
 
-	for {
-		if ctx.Err() != nil {
-			log.Fatalf("[FATAL] Shutting down while waiting for DB: %v", ctx.Err())
-		}
-
-		err := apiPool.Ping(ctx)
-		if err == nil {
-			break
-		}
-
-		log.Printf("[WARN] DB not ready yet (%v), retrying in 1 second...", err)
-
-		select {
-		case <-ctx.Done():
-			log.Fatalf("[FATAL] Shutting down while waiting for DB: %v", ctx.Err())
-		case <-time.After(1 * time.Second):
-		}
-	}
-
-	orderS, err := service.NewOrderService(ctx, apiPool, kafkaClient)
-	if err != nil {
-		log.Fatalf("[FATAL] Failed to create NewOrderService: %v", err)
+	orderS := &service.OrderService{
+		DB: pool,
+		KC: kafkaClient,
 	}
 	orderHandler := &api.OrderHandler{
 		Service: orderS,
 	}
-
 	go orderS.RunOutboxRelay(ctx)
 	go orderS.RunCompletedOrdersConsumer(ctx)
 

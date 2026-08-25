@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"time"
 
@@ -10,71 +9,52 @@ import (
 )
 
 func (s *OrderService) RunOutboxRelay(ctx context.Context) {
-	workers := 2
-	for _ = range workers {
-		go func() {
-			for {
-				if ctx.Err() != nil {
-					return
-				}
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
-				processedCnt, err := s.sendMessages(ctx)
-				if err != nil {
-					log.Printf("[ERR] outbox relay, sendMessages: %v", err)
-					time.Sleep(10 * time.Millisecond)
-					continue
-				}
-
-				if processedCnt == 0 {
-					time.Sleep(100 * time.Millisecond)
-				}
-			}
-		}()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.sendMessages(ctx)
+			ticker.Reset(1 * time.Second)
+		}
 	}
 }
 
-func (s *OrderService) sendMessages(ctx context.Context) (int, error) {
-	tx, err := s.DB.Begin(ctx)
+func (s *OrderService) sendMessages(ctx context.Context) {
+	rows, err := s.DB.Query(ctx,
+		"UPDATE outbox SET status = 'PROCESSING' WHERE id IN (SELECT id FROM outbox WHERE status = 'PENDING' LIMIT 100 FOR UPDATE SKIP LOCKED) RETURNING id, payload",
+	)
 	if err != nil {
-		return 0, fmt.Errorf("failed to open transaction: %v", err)
-	}
-	defer tx.Rollback(ctx)
-
-	rows, err := tx.Query(ctx, "SELECT id, payload FROM outbox WHERE status = 'PENDING' FOR UPDATE SKIP LOCKED LIMIT 100")
-	if err != nil {
-		return 0, fmt.Errorf("failed to query messages: %v", err)
+		log.Printf("[ERR] Outbox error reading messages to send: %v", err)
+		return
 	}
 	defer rows.Close()
 
-	records := make([]*kgo.Record, 0)
-	ids := make([]int, 0)
 	for rows.Next() {
 		var id int
 		var payload []byte
-		err = rows.Scan(&id, &payload)
+		err := rows.Scan(&id, &payload)
 		if err != nil {
-			log.Printf("[WARN] sendMessages: failed to scan from row %v", err)
+			log.Printf("[WARN] Error reading id/payload from outbox row: %v", err)
+			_, err := s.DB.Exec(ctx, "UPDATE outbox SET status = 'PENDING' WHERE id=$1", id)
+			if err != nil {
+				log.Printf("[ERR] Send to kafka error AND setting status back to PENDING error, id: %v | err: %v", id, err)
+			}
 			continue
 		}
-		records = append(records, &kgo.Record{Value: payload})
-		ids = append(ids, id)
-	}
 
-	if len(ids) == 0 {
-		return 0, nil
+		err = s.KC.ProduceSync(ctx, &kgo.Record{Value: payload}).FirstErr()
+		if err != nil {
+			log.Printf("[WARN] Send to kafka error: %v", err)
+			_, err := s.DB.Exec(ctx, "UPDATE outbox SET status = 'PENDING' WHERE id=$1", id)
+			if err != nil {
+				log.Printf("[ERR] Send to kafka error AND setting status back to PENDING error, id: %v | err: %v", id, err)
+			}
+			continue
+		}
+		s.DB.Exec(ctx, "DELETE FROM outbox WHERE id=$1", id)
 	}
-
-	err = s.KC.ProduceSync(ctx, records...).FirstErr()
-	if err != nil {
-		return 0, fmt.Errorf("[ERR] failed to produce to kafka: %v", err)
-	}
-	_, err = tx.Exec(ctx, "DELETE FROM outbox WHERE id = ANY($1)", ids)
-	if err != nil {
-		return 0, fmt.Errorf("[ERR] delete records from outbox: %v", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		log.Printf("[ERR] Failed to commit outbox tx: %v", err)
-	}
-	return len(ids), nil
 }
