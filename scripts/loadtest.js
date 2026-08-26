@@ -4,16 +4,16 @@ import { check } from 'k6';
 export const options = {
     timeout: '10s',
     scenarios: {
-        // reads_scenario: {
-        //     executor: 'constant-arrival-rate',
-        //     rate: 40,
-        //     maxVUs: 100,
-        //     timeUnit: '1s',
-        //     duration: '24h',
-        //     startTime: '10s',
-        //     preAllocatedVUs: 50,
-        //     exec: 'readBalance',
-        // },
+        reads_scenario: {
+            executor: 'constant-arrival-rate',
+            rate: 200,
+            maxVUs: 100,
+            timeUnit: '1s',
+            duration: '24h',
+            startTime: '10s',
+            preAllocatedVUs: 50,
+            exec: 'readBalance',
+        },
         // reads_scenario: {
         //     executor: 'ramping-arrival-rate',
         //     startRate: 5,
@@ -37,12 +37,12 @@ export const options = {
         // },
         orders_scenario: {
             executor: 'constant-arrival-rate',
-            rate: 220,
+            rate: 100,
             maxVUs: 300,
             preAllocatedVUs: 2,
             timeUnit: '1s',
             duration: '24h',
-            // startTime: '10s',
+            startTime: '20s',
             exec: 'placeOrder',
         },
         // orders_scenario: {
@@ -88,7 +88,7 @@ export function readBalance() {
     const res = http.get(`${BASE_URL}/accounts/postings/user_${userId}/USD`);
 
     check(res, {
-        'GET balance status is 200': (r) => r.status === 200,
+        'GET postings status is 200': (r) => r.status === 200,
     });
 }
 

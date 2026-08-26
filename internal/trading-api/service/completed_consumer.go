@@ -39,7 +39,7 @@ func (s *OrderService) RunCompletedOrdersConsumer(ctx context.Context) {
 		}
 
 		fetches.EachError(func(t string, p int32, err error) {
-			log.Printf("[ERROR] Fetch error topic %s: %v", t, err)
+			log.Printf("[ERR] Fetch error topic %s: %v", t, err)
 		})
 
 		fetches.EachRecord(func(rec *kgo.Record) {
@@ -52,7 +52,7 @@ func (s *OrderService) RunCompletedOrdersConsumer(ctx context.Context) {
 
 				// these are db writing/refund errors
 				if err != nil {
-					log.Printf("[ERROR] Error processing completed err: %v", err)
+					log.Printf("[ERR] Error processing completed err: %v", err)
 					// in production we'd wanna handle some of the errors
 					// and write to dead letter queue topic otherwise
 				}
@@ -71,16 +71,16 @@ func (s *OrderService) processCompletedOrder(ctx context.Context, record *kgo.Re
 		return nil
 	}
 
-	log.Printf("[INFO] processCompletedOrder order's id: %d | status: %v | error_message: %v", order.OrderID, order.Status, order.Error)
+	log.Printf("[INFO] processCompletedOrder order's id: %s | status: %v | error_message: %v", order.OrderID, order.Status, order.Error)
 	if order.Status != "ERROR" && order.Error == "" {
 		err = s.FinalizeOrder(ctx, order.OrderID)
 		if err != nil {
-			return fmt.Errorf("failed to finalize order %d | err: %v", order.OrderID, err)
+			return fmt.Errorf("failed to finalize order %s | err: %v", order.OrderID, err)
 		}
 
-		log.Printf("[INFO] Order %d finalized!", order.OrderID)
+		log.Printf("[INFO] Order %s finalized!", order.OrderID)
 	} else {
-		log.Printf("[ERROR] Order %d failed to execute, err: %v", order.OrderID, order.Error)
+		log.Printf("[ERR] Order %s failed to execute, err: %v", order.OrderID, order.Error)
 
 		err := s.RefundOrder(ctx, order.OrderID)
 		if err != nil {
@@ -88,7 +88,7 @@ func (s *OrderService) processCompletedOrder(ctx context.Context, record *kgo.Re
 		}
 
 		ordersCompletedWithError.Inc()
-		log.Printf("[INFO] Order %d refunded!", order.OrderID)
+		log.Printf("[INFO] Order %s refunded!", order.OrderID)
 	}
 
 	return nil

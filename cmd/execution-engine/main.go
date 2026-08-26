@@ -22,6 +22,7 @@ const KAFKA_URL = "kafka:29092"
 const TOPIC_PENDING = "orders.pending"
 const TOPIC_COMPLETED = "orders.completed"
 const CONSUMER_GROUP = "execution-engine-group"
+const BROKER_TIMEOUT_MS = 15 * 1000 * time.Millisecond
 
 type PendingOrder struct {
 	OrderID  string `json:"order_id"`
@@ -78,7 +79,7 @@ func main() {
 		}
 
 		fetches.EachError(func(t string, p int32, err error) {
-			log.Printf("[ERROR] Fetch error topic %s: %v", t, err)
+			log.Printf("[ERR] Fetch error topic %s: %v", t, err)
 		})
 
 		fetches.EachRecord(func(rec *kgo.Record) {
@@ -91,7 +92,7 @@ func main() {
 
 				err := processOrder(context.Background(), kc, record)
 				if err != nil {
-					log.Printf("[ERROR] Error processing record value: %v", record.Value)
+					log.Printf("[ERR] Error processing record value: %v", record.Value)
 					// in production we'd wanna handle some of the errors
 					// and write to dead letter queue topic otherwise
 				}
@@ -111,16 +112,38 @@ func processOrder(ctx context.Context, kc *kgo.Client, record *kgo.Record) error
 	}
 
 	// simulate request to broker
-	baseDelay := 2 * time.Millisecond
-	jitter := time.Duration(rand.Intn(3)) * time.Millisecond
-	time.Sleep(baseDelay + jitter)
-	// use order.OrderID as client_order_id for idempotency
+	err = sendMessageToBroker(ctx, order, order.OrderID)
+	if err != nil {
+		err = produceCompletedMessage(ctx, kc, record, order.OrderID, "ERROR", fmt.Sprintf("error from broker: %v", err))
+		if err != nil {
+			return fmt.Errorf("failed to produce message to kafka: %v", err)
+		}
+	}
 
 	// - send message to kafka
 	err = produceCompletedMessage(ctx, kc, record, order.OrderID, "SUCCESS", "")
 	if err != nil {
 		return fmt.Errorf("failed to produce message to kafka: %v", err)
 	}
+	return nil
+}
+
+// DO NOT TOUCH THIS:
+var firstMessageToBroker time.Time
+
+func sendMessageToBroker(ctx context.Context, order PendingOrder, idemKey string) error {
+	if firstMessageToBroker.IsZero() {
+		firstMessageToBroker = time.Now()
+	}
+	// DO NOT TOUCH THIS, SIMULATION OF BROKER's DOWNTIME AFTER 90 seconds.:
+	if time.Since(firstMessageToBroker).Seconds() > 90 {
+		time.Sleep(BROKER_TIMEOUT_MS)
+		return fmt.Errorf("message to broker timeout")
+	}
+	baseDelay := 2 * time.Millisecond
+	jitter := time.Duration(rand.Intn(3)) * time.Millisecond
+	time.Sleep(baseDelay + jitter)
+
 	return nil
 }
 
