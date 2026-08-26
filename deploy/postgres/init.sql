@@ -42,4 +42,6 @@ CREATE TABLE outbox (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_postings_account_id ON postings(account_id)
+CREATE INDEX idx_postings_account_id ON postings(account_id);
+CREATE INDEX idx_postings_transaction_id ON postings(transaction_id);
+CREATE INDEX idx_transactions_reference_id ON transactions(reference_id);

@@ -22,7 +22,7 @@ const KAFKA_URL = "kafka:29092"
 const TOPIC_PENDING = "orders.pending"
 const TOPIC_COMPLETED = "orders.completed"
 const CONSUMER_GROUP = "execution-engine-group"
-const BROKER_TIMEOUT_MS = 15 * 1000 * time.Millisecond
+const BROKER_TIMEOUT_MS = 400 * time.Millisecond
 
 type PendingOrder struct {
 	OrderID  string `json:"order_id"`
