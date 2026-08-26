@@ -112,7 +112,7 @@ func processOrder(ctx context.Context, kc *kgo.Client, record *kgo.Record) error
 	}
 
 	// simulate request to broker
-	err = sendMessageToBroker(ctx, order, order.OrderID)
+	err = sendMessageToBroker(ctx, order, order.OrderID, record.Offset == 1)
 	if err != nil {
 		err = produceCompletedMessage(ctx, kc, record, order.OrderID, "ERROR", fmt.Sprintf("error from broker: %v", err))
 		if err != nil {
@@ -131,8 +131,8 @@ func processOrder(ctx context.Context, kc *kgo.Client, record *kgo.Record) error
 // DO NOT TOUCH THIS:
 var firstMessageToBroker time.Time
 
-func sendMessageToBroker(ctx context.Context, order PendingOrder, idemKey string) error {
-	if firstMessageToBroker.IsZero() {
+func sendMessageToBroker(ctx context.Context, order PendingOrder, idemKey string, isFirst bool) error {
+	if isFirst {
 		firstMessageToBroker = time.Now()
 	}
 	// DO NOT TOUCH THIS, SIMULATION OF BROKER's DOWNTIME AFTER 90 seconds.:

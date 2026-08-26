@@ -4,20 +4,20 @@
   "metadata": {
     "name": "admb287",
     "namespace": "default",
-    "uid": "117eefc5-d50a-4a82-afb4-655f77ae9e5a",
-    "resourceVersion": "1787586435888017",
+    "uid": "a89c10d8-57b3-47a1-871d-9a3046274a35",
+    "resourceVersion": "1787747447210016",
     "generation": 1,
-    "creationTimestamp": "2026-08-24T15:47:15Z",
+    "creationTimestamp": "2026-08-26T12:30:47Z",
     "labels": {
-      "grafana.app/deprecatedInternalID": "2245021739421696"
+      "grafana.app/deprecatedInternalID": "2920352169410560"
     },
     "annotations": {
       "grafana.app/createdBy": "access-policy:service",
       "grafana.app/managedBy": "classic-file-provisioning",
       "grafana.app/managerId": "Default Dashboards",
-      "grafana.app/sourceChecksum": "9f87751c7ed0b12181ef7f4d39b48012",
+      "grafana.app/sourceChecksum": "1b3e20fed13c533198975dab78f1c7e3",
       "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/trading_api_dashboard.json",
-      "grafana.app/sourceTimestamp": "1787586188000",
+      "grafana.app/sourceTimestamp": "1787687028000",
       "grafana.app/folder": ""
     }
   },
@@ -1313,7 +1313,7 @@
                       "kind": "DataQuery",
                       "spec": {
                         "editorMode": "code",
-                        "expr": "sum(trading_orders_created_total - trading_orders_completed_ok_total)",
+                        "expr": "sum(trading_orders_created_total - trading_orders_completed_ok_total - trading_orders_errors_total)",
                         "legendFormat": "__auto",
                         "range": true
                       },
