@@ -164,6 +164,8 @@ services:
         condition: service_healthy
       kafka-setup:
         condition: service_completed_successfully
+  kyc-mock:
+    image: kirilcube/kyc-mock-service:v1
 
   k6:
     image: grafana/k6:latest

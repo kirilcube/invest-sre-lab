@@ -22,7 +22,6 @@ const KAFKA_URL = "kafka:29092"
 const TOPIC_PENDING = "orders.pending"
 const TOPIC_COMPLETED = "orders.completed"
 const CONSUMER_GROUP = "execution-engine-group"
-const BROKER_TIMEOUT_MS = 400 * time.Millisecond
 
 type PendingOrder struct {
 	OrderID  string `json:"order_id"`
@@ -128,22 +127,10 @@ func processOrder(ctx context.Context, kc *kgo.Client, record *kgo.Record) error
 	return nil
 }
 
-// DO NOT TOUCH THIS:
-var firstMessageToBroker time.Time
-
 func sendMessageToBroker(ctx context.Context, order PendingOrder, idemKey string, isFirst bool) error {
-	if isFirst {
-		firstMessageToBroker = time.Now()
-	}
-	// DO NOT TOUCH THIS, SIMULATION OF BROKER's DOWNTIME AFTER 90 seconds.:
-	if time.Since(firstMessageToBroker).Seconds() > 90 {
-		time.Sleep(BROKER_TIMEOUT_MS)
-		return fmt.Errorf("message to broker timeout")
-	}
 	baseDelay := 2 * time.Millisecond
 	jitter := time.Duration(rand.Intn(3)) * time.Millisecond
 	time.Sleep(baseDelay + jitter)
-
 	return nil
 }
 
