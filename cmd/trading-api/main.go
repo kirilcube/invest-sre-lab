@@ -8,6 +8,7 @@ import (
 	"invest-lab/internal/trading-api/service"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,6 +31,13 @@ const TOPIC_COMPLETED = "orders.completed"
 const CONSUMER_GROUP = "trading-api-group"
 
 func main() {
+	go func() {
+		log.Println("Starting pprof server on :6060")
+		if err := http.ListenAndServe("0.0.0.0:6060", nil); err != nil {
+			log.Printf("pprof server failed: %v", err)
+		}
+	}()
+
 	//TODO: projector for service accounts.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
