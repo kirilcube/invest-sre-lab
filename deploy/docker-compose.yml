@@ -139,6 +139,7 @@ services:
     command: ["./trading-api"]
     ports:
       - "8080:8080"
+      - "6060:6060"
     depends_on:
       postgres:
         condition: service_healthy
