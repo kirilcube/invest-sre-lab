@@ -35,11 +35,11 @@ func (s *AuditService) RunWorker(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.mu.Lock()
-			defer s.mu.Unlock()
 			for i := s.indexToProcess; i < len(s.ordersLog); i++ {
 				s.auditOrder(s.ordersLog[i])
 			}
 			s.indexToProcess = len(s.ordersLog)
+			s.mu.Unlock()
 		}
 	}
 }
