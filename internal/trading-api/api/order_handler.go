@@ -53,11 +53,6 @@ func (s *OrderHandler) HandleNewOrder(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[INFO] Creating new order idemKey: %v", idemKeyStr)
 
-	if err := s.Service.VerifyKYC(req.OwnerID); err != nil {
-		log.Printf("[ERR] HandleNewOrder, failed KYC: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
 	orderID, status, err := s.Service.CreateOrder(r.Context(), req, idemKey)
 	if err != nil {
 		log.Printf("[ERR] Create order error: %v", err.Error())

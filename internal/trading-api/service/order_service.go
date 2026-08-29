@@ -8,7 +8,6 @@ import (
 	"invest-lab/internal/trading-api/domain"
 	"invest-lab/internal/utils"
 	"log"
-	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,10 +21,10 @@ type OrderService struct {
 	KC                *kgo.Client
 	creationSem       chan struct{}
 	serviceAccountIDs map[string]int //asset -> id
-	httpClient        *http.Client
+	auditService      *AuditService
 }
 
-func NewOrderService(ctx context.Context, db *pgxpool.Pool, kc *kgo.Client) (*OrderService, error) {
+func NewOrderService(ctx context.Context, db *pgxpool.Pool, kc *kgo.Client, auditS *AuditService) (*OrderService, error) {
 	m, err := cacheServiceAccountIDs(ctx, db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Order Service: %v", err)
@@ -35,7 +34,7 @@ func NewOrderService(ctx context.Context, db *pgxpool.Pool, kc *kgo.Client) (*Or
 		KC:                kc,
 		creationSem:       make(chan struct{}, 5),
 		serviceAccountIDs: m,
-		httpClient:        &http.Client{},
+		auditService:      auditS,
 	}, nil
 }
 
@@ -59,19 +58,6 @@ func cacheServiceAccountIDs(ctx context.Context, db *pgxpool.Pool) (map[string]i
 	}
 
 	return m, nil
-}
-
-func (s *OrderService) VerifyKYC(userID string) error {
-	resp, err := s.httpClient.Get("http://kyc-mock:8080/verify?user=" + userID)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return errors.New("kyc failed")
-	}
-	return nil
 }
 
 func (s *OrderService) BeginCreationTx(ctx context.Context) (pgx.Tx, func(), error) {
@@ -204,6 +190,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req domain.OrderInfo, id
 		return "", "", fmt.Errorf("tx commit failed: %w", err)
 	}
 
+	s.auditService.AppendOrder(&req)
 	return orderID, "ACCEPTED", nil
 }
 

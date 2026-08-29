@@ -50,7 +50,6 @@ func main() {
 	defer apiPool.Close()
 
 	log.Printf("[INFO] Connected to PostgreSQL")
-
 	api.RegisterDBMetrics(apiPool)
 
 	kafkaMetrics := kprom.NewMetrics(
@@ -93,7 +92,9 @@ func main() {
 		}
 	}
 
-	orderS, err := service.NewOrderService(ctx, apiPool, kafkaClient)
+	auditS := service.NewAuditService()
+
+	orderS, err := service.NewOrderService(ctx, apiPool, kafkaClient, auditS)
 	if err != nil {
 		log.Fatalf("[FATAL] Failed to create NewOrderService: %v", err)
 	}
@@ -101,6 +102,7 @@ func main() {
 		Service: orderS,
 	}
 
+	go auditS.RunWorker(ctx)
 	go orderS.RunOutboxRelay(ctx)
 	go orderS.RunCompletedOrdersConsumer(ctx)
 
